@@ -13,3 +13,7 @@ config/users.json
 *.log
 .DS_Store
 *.swp
+
+# ROMs y partidas: contenido del usuario, nunca al repositorio.
+roms/
+saves/

@@ -333,6 +333,119 @@ code {
   font-size: 0.9em;
 }
 
+/* ── Listado de juegos ──────────────────────────────────────────────────── */
+
+.card-count {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.sys-note {
+  margin: -0.5rem 0 1.25rem;
+  padding: 0.6rem 0.85rem;
+  color: var(--muted);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-size: 0.87rem;
+}
+
+.upload-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
+.upload-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.progress {
+  position: relative;
+  height: 1.6rem;
+  margin-bottom: 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  overflow: hidden;
+}
+
+.bar {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.ptext {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  mix-blend-mode: difference;
+  color: #fff;
+}
+
+.rom-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.rom + .rom { border-top: 1px solid var(--border); }
+
+.rom-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.15rem;
+  background: var(--card);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.rom-link:hover { background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+
+.rom-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rom-size {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Estado y acciones de la partida ────────────────────────────────────── */
+
+.save-status {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.save-actions {
+  display: flex;
+  gap: 0.9rem;
+  margin-left: auto;
+}
+
+.save-actions .link-btn { white-space: nowrap; }
+
 /* ── Móvil ──────────────────────────────────────────────────────────────── */
 
 @media (max-width: 40rem) {
@@ -342,6 +455,11 @@ code {
   .card-title { font-size: 1rem; }
   .card-sub { display: none; }
   .picker { padding: 1.5rem 1.15rem; margin: 1.25rem auto; }
+
+  /* La cabecera del juego se apila para que quepan las acciones. */
+  .play-head { flex-wrap: wrap; gap: 0.5rem 0.9rem; }
+  .save-actions { margin-left: 0; width: 100%; }
+  .upload-hint { width: 100%; }
 }
 
 /* En móvil apaisado el juego ocupa todo el alto disponible. */

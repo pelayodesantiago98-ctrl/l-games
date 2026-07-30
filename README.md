@@ -7,12 +7,49 @@ WebAssembly) en una app Express con login.
 En producción: `l-games.lepayimio.es`. La configuración del servidor vive en el
 repositorio **lepayimio-infra**.
 
-## No se alojan ROMs
+## ROMs y partidas
 
-Cada consola abre un selector de fichero y el juego se carga desde el
-dispositivo del usuario como un blob local. **Nada se sube al servidor.** Es una
-decisión deliberada: mantiene el proyecto limpio legalmente y evita almacenar
-gigabytes.
+Las ROMs se alojan en el servidor, en `roms/<sistema>/`, y se suben desde la
+propia web. La subida va por `PUT` en streaming directo a disco: el fichero no
+pasa por memoria, así que una imagen de CD de 700 MB no infla el proceso. Se
+escribe a un temporal y se renombra al terminar, de modo que una subida cortada
+nunca deja un fichero a medias.
+
+**Las ROMs son compartidas entre usuarios; las partidas no.** Cada usuario tiene
+las suyas en `saves/<usuario>/<sistema>/<juego>.srm`.
+
+### Cómo se guardan las partidas
+
+La SRAM se sincroniza con el servidor en tres momentos: cada 30 segundos, al
+ocultarse la pestaña y al cerrarla. Se calcula una huella barata del contenido
+para no subir nada si la partida no ha cambiado.
+
+Al arrancar un juego se recupera la partida del servidor y se inyecta en el
+emulador:
+
+```js
+gameManager.saveSaveFiles();                              // asegura la ruta
+gameManager.FS.writeFile(gameManager.getSaveFilePath(), datos);
+gameManager.loadSaveFiles();
+```
+
+También se puede **exportar** el `.srm` a disco e **importar** uno externo, que
+se sube al servidor y se inyecta en la partida en curso sin recargar.
+
+El botón nativo de guardado de EmulatorJS queda interceptado mediante
+`EJS_onSaveSave`: cuando ese evento tiene algún listener, la librería cancela su
+descarga a disco, y aprovechamos para guardar en el servidor.
+
+### Seguridad de las rutas
+
+Ni las ROMs ni las partidas se localizan concatenando lo que manda el cliente.
+Se lista el directorio y se busca una coincidencia **exacta**; si no aparece,
+404. Aunque el saneador de nombres fallara, no hay forma de salir del directorio.
+
+Un detalle que costó un bug: `express.urlencoded` **no** puede montarse global.
+Los clientes que suben un fichero sin `Content-Type` caen por defecto en
+`application/x-www-form-urlencoded`, y el parser rechazaría la ROM por tamaño
+antes de llegar al handler. Va montado solo en la ruta de login.
 
 ## Sistemas
 
