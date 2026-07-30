@@ -184,10 +184,13 @@ function layout({ title, body, user, wide }) {
 <body>
   <header class="topbar">
     <a class="brand" href="/">L-games</a>
-    ${user ? `<form class="logout" method="post" action="/logout">
-      <span class="who">${esc(user)}</span>
-      <button class="link-btn" type="submit">Salir</button>
-    </form>` : ''}
+    ${user ? `<nav class="topnav">
+      <a class="link-btn" href="/controles">Controles</a>
+      <form class="logout" method="post" action="/logout">
+        <span class="who">${esc(user)}</span>
+        <button class="link-btn" type="submit">Salir</button>
+      </form>
+    </nav>` : ''}
   </header>
   <main class="${wide ? 'wrap wrap-wide' : 'wrap'}">
 ${body}
@@ -212,6 +215,94 @@ function loginPage(error) {
         <button class="btn" type="submit">Entrar</button>
       </form>
     </div>`,
+  });
+}
+
+/*
+ * Mapeo por defecto leido de data/src/emulator.js (this.defaultControllers).
+ * EmulatorJS usa el estandar RetroPad: cada consola llama a sus botones de una
+ * forma distinta, pero por debajo son siempre los mismos cuatro.
+ */
+const TECLADO = [
+  ['Cruceta / dirección', '↑ ↓ ← →', 'Flechas del teclado'],
+  ['Botón inferior', 'Z', 'B en Nintendo, ✕ en PlayStation'],
+  ['Botón derecho', 'X', 'A en Nintendo, ○ en PlayStation'],
+  ['Botón izquierdo', 'A', 'Y en SNES, □ en PlayStation'],
+  ['Botón superior', 'S', 'X en SNES, △ en PlayStation'],
+  ['Gatillo izquierdo (L)', 'Q', 'L1 en PlayStation'],
+  ['Gatillo derecho (R)', 'E', 'R1 en PlayStation'],
+  ['Gatillo inferior izq. (L2)', 'Tab', ''],
+  ['Gatillo inferior der. (R2)', 'R', ''],
+  ['Start', 'Enter', ''],
+  ['Select', 'V', ''],
+  ['Stick analógico', 'F H T G', 'izquierda, derecha, arriba, abajo'],
+];
+
+const POR_CONSOLA = [
+  ['NES, Master System', 'Solo dos botones: <b>Z</b> y <b>X</b>.'],
+  ['SNES', 'Los cuatro botones más los gatillos: <b>Z</b>=B, <b>X</b>=A, <b>A</b>=Y, <b>S</b>=X, <b>Q</b>=L, <b>E</b>=R.'],
+  ['Game Boy, GB Color', 'Dos botones: <b>Z</b>=B, <b>X</b>=A.'],
+  ['Game Boy Advance', 'Como Game Boy más los gatillos <b>Q</b> y <b>E</b>.'],
+  ['Mega Drive, Game Gear', 'Tres botones en la fila inferior. Si el juego usa seis, la segunda fila cae en <b>A</b> y <b>S</b>.'],
+  ['PlayStation', '<b>Z</b>=✕, <b>X</b>=○, <b>A</b>=□, <b>S</b>=△. Gatillos en <b>Q E Tab R</b>.'],
+  ['Nintendo DS', 'La pantalla táctil se maneja con el ratón o el dedo directamente sobre ella.'],
+  ['Nintendo 64', 'El stick va en <b>F H T G</b>. Los botones C suelen quedar en los gatillos.'],
+  ['Arcade', 'Depende de la placa. Casi siempre <b>V</b> mete moneda y <b>Enter</b> empieza la partida.'],
+];
+
+function controlsPage(user) {
+  const filas = TECLADO.map(([accion, tecla, nota]) => `        <tr>
+          <td>${accion}</td>
+          <td><kbd>${esc(tecla)}</kbd></td>
+          <td class="nota">${nota}</td>
+        </tr>`).join('\n');
+
+  const consolas = POR_CONSOLA.map(([nombre, texto]) => `      <li><b>${esc(nombre)}:</b> ${texto}</li>`).join('\n');
+
+  return layout({
+    title: 'Controles — L-games',
+    user,
+    body: `    <div class="head">
+      <h1 class="title">Controles</h1>
+      <p class="subtitle">Mapeo por defecto. Todo es reconfigurable desde el propio emulador.</p>
+    </div>
+
+    <h2 class="sec">Teclado</h2>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Acción</th><th>Tecla</th><th>Equivale a</th></tr></thead>
+        <tbody>
+${filas}
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="sec">Según la consola</h2>
+    <ul class="lista">
+${consolas}
+    </ul>
+
+    <h2 class="sec">Mando</h2>
+    <p>Conecta un mando por USB o Bluetooth <b>antes</b> de abrir el juego y se detecta solo:
+    no hay que configurar nada. Si lo conectas con la partida ya empezada, pulsa cualquier
+    botón para que el navegador lo reconozca.</p>
+
+    <h2 class="sec">Móvil y tablet</h2>
+    <p>Aparece un mando virtual en pantalla. En horizontal se ve mejor: la cruceta
+    queda a la izquierda y los botones a la derecha. En Nintendo DS puedes tocar
+    directamente la pantalla inferior.</p>
+
+    <h2 class="sec">Cambiar las teclas</h2>
+    <p>Dentro del juego, mueve el ratón sobre la imagen para que salga la barra del
+    emulador y entra en el icono de ajustes. Ahí puedes reasignar cada botón, tanto de
+    teclado como de mando, y los cambios se recuerdan.</p>
+
+    <h2 class="sec">Guardado</h2>
+    <p>La partida se guarda sola en el servidor cada 30 segundos y al salir, y es
+    <b>distinta para cada usuario</b>. Con los botones de la cabecera del juego puedes
+    exportar tu partida a un fichero o importar una que tengas.</p>
+
+    <p class="volver"><a class="btn" href="/">Volver a las consolas</a></p>`,
   });
 }
 
@@ -529,6 +620,10 @@ app.get('/', requireAuth, async (req, res) => {
   const counts = {};
   for (const s of systems) counts[s.id] = (await listRoms(s.id)).length;
   res.type('html').send(indexPage(req.user, systems, counts));
+});
+
+app.get('/controles', requireAuth, (req, res) => {
+  res.type('html').send(controlsPage(req.user));
 });
 
 app.get('/system/:id', requireAuth, async (req, res) => {

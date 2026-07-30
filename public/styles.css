@@ -446,6 +446,77 @@ code {
 
 .save-actions .link-btn { white-space: nowrap; }
 
+/* ── Página de controles ────────────────────────────────────────────────── */
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.sec {
+  margin: 2.25rem 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.tabla-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.tabla th,
+.tabla td {
+  padding: 0.55rem 0.9rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabla thead th {
+  background: var(--card);
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tabla tbody tr:last-child td { border-bottom: none; }
+
+.tabla .nota {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6rem;
+  padding: 0.15rem 0.45rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.lista {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.lista li { margin-bottom: 0.45rem; }
+
+.volver { margin-top: 2.5rem; }
+
 /* ── Móvil ──────────────────────────────────────────────────────────────── */
 
 @media (max-width: 40rem) {
