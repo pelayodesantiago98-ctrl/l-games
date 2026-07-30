@@ -22,6 +22,19 @@ const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
 const ROMS_DIR = path.join(__dirname, 'roms');
 const SAVES_DIR = path.join(__dirname, 'saves');
 
+/*
+ * Versión de los estáticos a partir de la fecha del fichero. Sin esto, el CSS
+ * se queda cacheado una hora en el navegador y los cambios de maquetación no
+ * llegan al usuario hasta que vacía la caché a mano.
+ */
+function versionEstaticos() {
+  try {
+    return String(Math.floor(fs.statSync(path.join(__dirname, 'public', 'styles.css')).mtimeMs));
+  } catch {
+    return '0';
+  }
+}
+
 const COOKIE = 'lgames_session';
 const SESSION_DAYS = 30;
 const MAX_SAVE_BYTES = 16 * 1024 * 1024; // holgado: la SRAM mayor ronda 8 MB
@@ -172,16 +185,16 @@ function noteAttempt(ip) {
 
 // ─── plantillas ──────────────────────────────────────────────────────────────
 
-function layout({ title, body, user, wide }) {
+function layout({ title, body, user, wide, fija }) {
   return `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
   <title>${esc(title)}</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=${versionEstaticos()}">
 </head>
-<body>
+<body class="${fija ? 'fija' : ''}">
   <header class="topbar">
     <a class="brand" href="/">L-games</a>
     ${user ? `<nav class="topnav">
@@ -410,6 +423,7 @@ function playPage(user, system, rom, tieneSave) {
   return layout({
     title: `${romBase(rom.name)} — L-games`,
     wide: true,
+    fija: true,
     user,
     body: `    <div class="play-head">
       <a class="back" href="/system/${esc(system.id)}">← ${esc(system.name)}</a>

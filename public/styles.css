@@ -533,10 +533,89 @@ kbd {
   .upload-hint { width: 100%; }
 }
 
-/* En móvil apaisado el juego ocupa todo el alto disponible. */
-@media (max-width: 60rem) and (orientation: landscape) {
-  .topbar { padding: 0.5rem 1rem; }
-  .wrap-wide { padding: 0.75rem 0.5rem 1rem; }
-  .play-head { margin-bottom: 0.5rem; }
-  #game-wrap { aspect-ratio: auto; height: calc(100vh - 6rem); max-height: none; }
+/* ═══════════════════════════════════════════════════════════════════════
+   PANTALLA DE JUEGO FIJA
+   Solo esta página. El resto del sitio se desplaza con normalidad, porque
+   la lista de consolas y la guía de controles no caben en una pantalla.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/*
+ * position:fixed y no solo overflow:hidden. Con overflow:hidden en el body,
+ * el elemento <html> sigue pudiendo desplazarse y quedaban 47px de scroll en
+ * apaisado. Sacando el body del flujo no hay nada que desplazar.
+ */
+body.fija {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;              /* dvh, no vh: descuenta la barra del navegador móvil */
+  overflow: hidden;
+  overscroll-behavior: none;   /* mata el rebote elástico al llegar al borde */
+  display: flex;
+  flex-direction: column;
+  touch-action: manipulation;  /* sin doble-toque para hacer zoom */
+}
+
+body.fija .topbar { flex: 0 0 auto; }
+
+body.fija .wrap {
+  flex: 1 1 auto;
+  min-height: 0;               /* imprescindible: si no, el flex desborda */
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0.9rem;
+}
+
+body.fija .play-head { flex: 0 0 auto; }
+
+body.fija #game-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  aspect-ratio: auto;          /* manda la altura disponible, no la proporción */
+  max-height: none;
+}
+
+/* ── Móvil en vertical: juego arriba, mando debajo ──────────────────────── */
+@media (orientation: portrait) and (max-width: 60rem) {
+  body.fija .topbar { padding: 0.5rem 1rem; }
+  body.fija .wrap { padding: 0.6rem 0.5rem 0.5rem; }
+  body.fija .play-head { margin-bottom: 0.5rem; }
+
+  /* El lienzo cede la parte inferior; el mando deja de solaparse.
+     44% es lo justo para la proporción 4:3 a lo ancho del móvil: más alto
+     solo añadiría banda negra muerta bajo la imagen del juego. */
+  body.fija .ejs_canvas_parent { height: 44% !important; }
+
+  body.fija .ejs_virtualGamepad_parent {
+    bottom: 0 !important;
+    height: 56% !important;
+    background: #0b0b0a;
+    border-top: 1px solid #2626223d;
+  }
+
+  /* Los hijos se anclan al fondo del contenedor; se recolocan en porcentaje
+     para que acompañen a la altura nueva en vez de a la original. */
+  body.fija .ejs_virtualGamepad_left,
+  body.fija .ejs_virtualGamepad_right { bottom: 34% !important; }
+  body.fija .ejs_virtualGamepad_top { bottom: 72% !important; }
+  body.fija .ejs_virtualGamepad_bottom { bottom: 21% !important; }
+
+  /* La fila de Rápido/Lento se salía 21px por debajo del borde. */
+  body.fija .ejs_virtualGamepad_button.b_speed_fast,
+  body.fija .ejs_virtualGamepad_button.b_speed_slow { bottom: 4% !important; }
+}
+
+/* ── Móvil apaisado: el juego se come toda la pantalla ──────────────────── */
+@media (orientation: landscape) and (max-height: 32rem) {
+  body.fija .topbar { display: none; }
+  body.fija .wrap { padding: 0.35rem 0.4rem 0.4rem; }
+  body.fija .play-head { margin-bottom: 0.3rem; font-size: 0.85rem; }
+  body.fija .play-title { font-size: 1rem; }
+  body.fija .save-status { display: none; }
+  body.fija #game-wrap { border-radius: 0.4rem; }
+}
+
+/* Ninguna página debe moverse lateralmente ni rebotar en los bordes. */
+html {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 }
