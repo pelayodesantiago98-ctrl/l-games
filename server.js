@@ -436,7 +436,10 @@ function playPage(user, system, rom, tieneSave) {
       </span>
     </div>
 
-    <div id="game-wrap"><div id="game"></div></div>
+    <div id="game-wrap">
+      <div id="game"></div>
+      <button id="ajustes" class="ajustes-btn" type="button" aria-label="Abrir ajustes del emulador">Ajustes</button>
+    </div>
 
     <script>
       window.EJS_player       = '#game';
@@ -515,6 +518,24 @@ function playPage(user, system, rom, tieneSave) {
           } finally {
             guardando = false;
           }
+        }
+
+        /*
+         * Boton "Ajustes" para tactil. La barra de EmulatorJS aparece al mover
+         * el raton y se esconde sola a los 3 segundos, algo inservible sin raton.
+         * menu.open(true) la abre y el "true" desactiva ese autoocultado.
+         * Ahi dentro estan guardar/cargar estado, captura, ajustes y pantalla
+         * completa, asi que no hace falta reimplementar ninguna.
+         */
+        var btnAjustes = document.getElementById('ajustes');
+        if (btnAjustes) {
+          btnAjustes.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            var e = window.EJS_emulator;
+            if (!e || !e.menu || !e.elements || !e.elements.menu) return;
+            var oculto = e.elements.menu.classList.contains('ejs_menu_bar_hidden');
+            if (oculto) { e.menu.open(true); } else { e.menu.close(); }
+          });
         }
 
         // Importar una partida desde un fichero del dispositivo: se sube al
