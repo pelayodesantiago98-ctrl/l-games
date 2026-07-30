@@ -1,0 +1,14 @@
+{
+  "name": "l-games",
+  "version": "0.1.0",
+  "description": "Emuladores de consola en el navegador, con acceso restringido",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "adduser": "node adduser.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

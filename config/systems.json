@@ -1,0 +1,128 @@
+[
+  {
+    "id": "nes",
+    "name": "NES",
+    "fullName": "Nintendo Entertainment System",
+    "core": "nes",
+    "year": "1983",
+    "extensions": [".nes", ".fds", ".unf", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "snes",
+    "name": "SNES",
+    "fullName": "Super Nintendo",
+    "core": "snes",
+    "year": "1990",
+    "extensions": [".smc", ".sfc", ".swc", ".fig", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "n64",
+    "name": "Nintendo 64",
+    "fullName": "Nintendo 64",
+    "core": "n64",
+    "year": "1996",
+    "extensions": [".n64", ".v64", ".z64", ".zip"],
+    "note": "Exigente. Algunos juegos presentan fallos gráficos o van lentos en móvil."
+  },
+  {
+    "id": "gb",
+    "name": "Game Boy",
+    "fullName": "Nintendo Game Boy",
+    "core": "gb",
+    "year": "1989",
+    "extensions": [".gb", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "gbc",
+    "name": "Game Boy Color",
+    "fullName": "Nintendo Game Boy Color",
+    "core": "gb",
+    "year": "1998",
+    "extensions": [".gbc", ".gb", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "gba",
+    "name": "Game Boy Advance",
+    "fullName": "Nintendo Game Boy Advance",
+    "core": "gba",
+    "year": "2001",
+    "extensions": [".gba", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "nds",
+    "name": "Nintendo DS",
+    "fullName": "Nintendo DS",
+    "core": "nds",
+    "year": "2004",
+    "extensions": [".nds", ".zip"],
+    "note": "Exigente. La pantalla táctil se maneja con el ratón o el dedo."
+  },
+  {
+    "id": "segaMD",
+    "name": "Mega Drive",
+    "fullName": "Sega Mega Drive / Genesis",
+    "core": "segaMD",
+    "year": "1988",
+    "extensions": [".md", ".gen", ".smd", ".bin", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "segaMS",
+    "name": "Master System",
+    "fullName": "Sega Master System",
+    "core": "segaMS",
+    "year": "1985",
+    "extensions": [".sms", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "segaGG",
+    "name": "Game Gear",
+    "fullName": "Sega Game Gear",
+    "core": "segaGG",
+    "year": "1990",
+    "extensions": [".gg", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "psx",
+    "name": "PlayStation",
+    "fullName": "Sony PlayStation",
+    "core": "psx",
+    "year": "1994",
+    "extensions": [".bin", ".cue", ".chd", ".pbp", ".m3u", ".iso"],
+    "note": "Para imágenes .bin necesitas también el .cue. Algunos juegos requieren BIOS."
+  },
+  {
+    "id": "segaSaturn",
+    "name": "Saturn",
+    "fullName": "Sega Saturn",
+    "core": "segaSaturn",
+    "year": "1994",
+    "extensions": [".cue", ".iso", ".chd", ".ccd"],
+    "note": "Requiere BIOS de Saturn y es el sistema menos estable del conjunto."
+  },
+  {
+    "id": "atari2600",
+    "name": "Atari 2600",
+    "fullName": "Atari 2600",
+    "core": "atari2600",
+    "year": "1977",
+    "extensions": [".a26", ".bin", ".zip"],
+    "note": ""
+  },
+  {
+    "id": "arcade",
+    "name": "Arcade",
+    "fullName": "Arcade (MAME / FinalBurn)",
+    "core": "arcade",
+    "year": "—",
+    "extensions": [".zip", ".7z"],
+    "note": "El romset debe coincidir con la versión del core. Se carga el .zip sin descomprimir."
+  }
+]

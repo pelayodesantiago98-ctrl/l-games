@@ -1,0 +1,15 @@
+# Cores de EmulatorJS: 296 MB, se descargan de su release (ver README).
+data/
+
+# Dependencias
+node_modules/
+
+# Secreto de sesion y hashes de contrasenas: nunca al repositorio.
+.env
+.env.*
+config/users.json
+
+# Sistema y editores
+*.log
+.DS_Store
+*.swp
