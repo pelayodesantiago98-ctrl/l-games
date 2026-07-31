@@ -1126,6 +1126,28 @@ function buscadorHTML({ selector, etiqueta, vacio }) {
  * hover y un bloque de texto. Estaba duplicada en dos sitios y cualquier
  * retoque había que hacerlo dos veces, con el riesgo de que se separaran.
  */
+/*
+ * Selector de fichero.
+ *
+ * El control nativo dibuja su propio botón y su propio "ningún archivo
+ * seleccionado" con el texto del navegador, que va en el idioma del sistema y
+ * al que CSS no llega: en la página quedaba un trozo con otra tipografía y
+ * otras palabras. Aquí el input se esconde —sin display:none, para que siga
+ * recibiendo el foco del teclado— y el botón y el nombre del fichero elegido
+ * los escribimos nosotros. El id no cambia, así que el JS que lee .files[0]
+ * sigue igual.
+ */
+function campoFichero({ id, etiqueta, accept, vacio = 'Ningún fichero elegido', pie = '' }) {
+  return `      <div class="campo">
+        <label for="${id}">${etiqueta}</label>
+        <div class="fichero">
+          <input id="${id}" type="file" accept="${esc(accept)}">
+          <label class="fichero-btn" for="${id}" aria-hidden="true">Elegir fichero</label>
+          <span class="fichero-nombre" data-vacio="${esc(vacio)}">${esc(vacio)}</span>
+        </div>${pie}
+      </div>`;
+}
+
 function tarjetaHTML({ href, clases = [], portada, anim, esquina, cuerpo, datos = {} }) {
   const esVideo = esVideoMedia(anim);
 
@@ -1352,23 +1374,11 @@ ${admin ? `
             <label for="ed-desc">Descripción</label>
             <textarea id="ed-desc" rows="2" maxlength="400"></textarea>
           </div>
-          <div class="campo">
-            <label for="ed-img">Imagen</label>
-            <input id="ed-img" type="file" accept="${esc(EXT_IMAGEN.join(','))}">
-          </div>
-          <div class="campo">
-            <label for="ed-anim">Animación 1 <small>(al pasar el ratón)</small></label>
-            <input id="ed-anim" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
-          </div>
-          <div class="campo">
-            <label for="ed-anim2">Animación 2 <small>(en esta ventana)</small></label>
-            <input id="ed-anim2" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
-          </div>
-          <div class="campo">
-            <label for="ed-rom">Cambiar la ROM</label>
-            <input id="ed-rom" type="file" accept="${esc((system.extensions || []).join(','))}">
-            <span class="ayuda">Si el fichero se llama distinto, se moverán sus datos, imágenes y partidas al nombre nuevo.</span>
-          </div>
+${campoFichero({ id: 'ed-img', etiqueta: 'Imagen', accept: EXT_IMAGEN.join(',') })}
+${campoFichero({ id: 'ed-anim', etiqueta: 'Animación 1 <small>(al pasar el ratón)</small>', accept: EXT_ANIMADA.join(',') })}
+${campoFichero({ id: 'ed-anim2', etiqueta: 'Animación 2 <small>(en esta ventana)</small>', accept: EXT_ANIMADA.join(',') })}
+${campoFichero({ id: 'ed-rom', etiqueta: 'Cambiar la ROM', accept: (system.extensions || []).join(','),
+        pie: '<span class="ayuda">Si el fichero se llama distinto, se moverán sus datos, imágenes y partidas al nombre nuevo.</span>' })}
           <div id="ed-progreso" class="progress" hidden><div id="ed-bar" class="bar"></div><span id="ed-txt" class="ptext"></span></div>
           <button id="ed-guardar" class="btn" type="button">Guardar cambios</button>
           <span class="detalle-pie">
@@ -1394,11 +1404,9 @@ ${admin ? `
 ${admin ? `
     <section id="panel-subir" class="panel" hidden>
       <h2 class="panel-titulo">Subir juego</h2>
-      <div class="campo">
-        <label for="rom">Fichero de la ROM</label>
-        <input id="rom" type="file" accept="${esc((system.extensions || []).join(','))}">
-        <span class="campo-nota">${esc((system.extensions || []).join('  '))}</span>
-      </div>
+${campoFichero({ id: 'rom', etiqueta: 'Fichero de la ROM', accept: (system.extensions || []).join(','),
+        vacio: 'Ninguna ROM elegida',
+        pie: `<span class="campo-nota">${esc((system.extensions || []).join('  '))}</span>` })}
       <div class="campo">
         <label for="nombre">Nombre</label>
         <input id="nombre" type="text" maxlength="120" placeholder="Si lo dejas vacío se usa el del fichero">
@@ -1407,19 +1415,10 @@ ${admin ? `
         <label for="descripcion">Descripción</label>
         <textarea id="descripcion" rows="2" maxlength="400" placeholder="Opcional"></textarea>
       </div>
-      <div class="campo">
-        <label for="j-img">Imagen</label>
-        <input id="j-img" type="file" accept="${esc(EXT_IMAGEN.join(','))}">
-      </div>
+${campoFichero({ id: 'j-img', etiqueta: 'Imagen', accept: EXT_IMAGEN.join(',') })}
       <div class="campo-doble">
-        <div class="campo">
-          <label for="j-gif">Animación 1 <small>(al pasar el ratón)</small></label>
-          <input id="j-gif" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
-        </div>
-        <div class="campo">
-          <label for="j-gif2">Animación 2 <small>(en la ventana de detalle)</small></label>
-          <input id="j-gif2" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
-        </div>
+${campoFichero({ id: 'j-gif', etiqueta: 'Animación 1 <small>(al pasar el ratón)</small>', accept: EXT_ANIMADA.join(',') })}
+${campoFichero({ id: 'j-gif2', etiqueta: 'Animación 2 <small>(en la ventana de detalle)</small>', accept: EXT_ANIMADA.join(',') })}
       </div>
       <p class="campo-nota">
         La imagen se ve siempre. Máximo 24 MB cada fichero.
@@ -1493,6 +1492,18 @@ ${lista}
         var box  = document.getElementById('progress');
         var bar  = document.getElementById('bar');
         var txt  = document.getElementById('ptext');
+
+        // El nombre del fichero elegido lo escribimos nosotros: el input real
+        // está oculto. Un solo oyente delegado sirve para los del panel de
+        // subir y para los de la ventana de editar, que se crea después.
+        document.addEventListener('change', function (e) {
+          var campo = e.target;
+          if (!campo.matches || !campo.matches('.fichero input[type="file"]')) return;
+          var span = campo.parentNode.querySelector('.fichero-nombre');
+          var elegido = campo.files && campo.files[0];
+          span.textContent = elegido ? elegido.name : span.dataset.vacio;
+          span.classList.toggle('con-fichero', !!elegido);
+        });
 
         if (btn) btn.addEventListener('click', async function () {
           var rom  = document.getElementById('rom').files[0];
@@ -1726,7 +1737,11 @@ ${lista}
                 document.getElementById('ed-nombre').value = origen.dataset.nombre || '';
                 document.getElementById('ed-desc').value = origen.dataset.descripcion || '';
                 ['ed-img', 'ed-anim', 'ed-anim2', 'ed-rom'].forEach(function (id) {
-                  document.getElementById(id).value = '';
+                  var campo = document.getElementById(id);
+                  campo.value = '';
+                  // Vaciar el input no dispara change, y el nombre escrito
+                  // antes se quedaría puesto al reabrir la ventana.
+                  campo.dispatchEvent(new Event('change', { bubbles: true }));
                 });
                 edBox.hidden = true;
                 edBar.style.width = '0%';

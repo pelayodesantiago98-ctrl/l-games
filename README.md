@@ -201,6 +201,37 @@ sobra en la página y no hay que ir al servidor por cada tecla. **El script
 recoge las tarjetas en `DOMContentLoaded`**, no al vuelo: las rejillas se pintan
 después del bloque y buscarlas antes daba una lista vacía que no filtraba nada.
 
+## Controles de formulario
+
+Todos los campos que el usuario escribe salen de **una sola regla** en
+`styles.css`. Antes había cuatro reglas parecidas repartidas por la hoja y la
+de `.campo` enumeraba `input[type="text"]`, así que `type="password"` no
+entraba en ninguna: las tres contraseñas de `/perfil` y las dos de `/gestión`
+se dibujaban con la caja por defecto del navegador. La lista de tipos sigue
+siendo explícita —un `input` a secas alcanzaría también a `type="file"`, que
+necesita otra caja— pero ahora está en un único sitio.
+
+Junto a eso:
+
+- **Autorrelleno.** Chrome pinta los campos que ha guardado con un fondo propio
+  que ignora `background-color`, y en el tema oscuro dejaba una caja clara con
+  el texto casi ilegible. Se nota sobre todo en las contraseñas, que son las
+  que el navegador guarda. No hay propiedad que lo desactive: se tapa con una
+  sombra interior sólida y el texto se recolorea con `-webkit-text-fill-color`.
+- **`color-scheme: light dark`.** Sin esto la interfaz que dibuja el navegador
+  —la lista desplegada del `select`, las barras de desplazamiento, el menú de
+  contraseñas guardadas— salía siempre en claro sobre el tema oscuro.
+- **`::placeholder`** con `--muted` y `opacity: 1`, porque Firefox lo aclara al
+  54% si no se fija.
+- **Selectores de fichero propios.** El control nativo escribe su botón y su
+  «ningún archivo seleccionado» con el texto del navegador, en el idioma del
+  sistema, y CSS no llega a ese texto. Los ocho visibles pasan por el ayudante
+  `campoFichero()`: el input queda oculto —a un píxel, no con `display:none`,
+  para que el teclado siga alcanzándolo— y el botón y el nombre del fichero los
+  escribe la página. El `id` no cambia, así que el JS que lee `.files[0]` sigue
+  igual. Vaciar un input no dispara `change`, de modo que al reabrir la ventana
+  de editar se lanza el evento a mano para borrar el nombre anterior.
+
 ## Roles
 
 Cada usuario tiene un `rol` en `config/users.json`: `usuario` (el de quien se

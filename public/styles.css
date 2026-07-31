@@ -22,6 +22,15 @@
   }
 }
 
+/* Le dice al navegador que la página sabe vestirse de claro y de oscuro. Sin
+   esto la UI que dibuja él —la lista desplegada del select, las barras de
+   desplazamiento, el menú de contraseñas guardadas— sale siempre en claro
+   sobre el tema oscuro. */
+:root {
+  color-scheme: light dark;
+  accent-color: var(--accent);
+}
+
 * { box-sizing: border-box; }
 
 /*
@@ -463,30 +472,164 @@ video.card-anim {
   font-weight: 550;
 }
 
+/* ── Controles de formulario ────────────────────────────────────
+ *
+ * Una sola base para todo lo que el usuario escribe. Antes la regla enumeraba
+ * input[type="text"] y se dejaba fuera type="password", así que las tres
+ * contraseñas de /perfil y las dos de /gestión salían con la caja por defecto
+ * del navegador: fondo blanco, borde de relieve y esquinas rectas sobre un
+ * fondo oscuro. Enumerar tipos es justo lo que provocó el fallo, pero un
+ * `input` a secas también alcanzaría a type="file", que necesita otra caja.
+ * De ahí la lista explícita, ahora en un único sitio: si aparece un tipo nuevo
+ * se añade aquí y no en cuatro reglas repartidas por la hoja.
+ */
+
 .campo input[type="text"],
-.campo textarea {
+.campo input[type="password"],
+.campo input[type="search"],
+.campo input[type="email"],
+.campo input[type="number"],
+.campo textarea,
+.campo select,
+.login-box input,
+.buscador input {
   width: 100%;
   padding: 0.5rem 0.7rem;
-  background: var(--bg);
+  background-color: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   font: inherit;
   font-size: 1rem;             /* 16px: evita el zoom automático de iOS */
+  appearance: none;            /* relieve de iOS, lupa de type=search, flecha del select */
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.campo textarea {
   resize: vertical;
 }
 
-.campo input[type="file"] {
-  width: 100%;
+/* El texto de sugerencia lo colorea el navegador por su cuenta y no sigue al
+   tema; en oscuro queda o casi invisible o más brillante que el propio valor. */
+.campo input::placeholder,
+.campo textarea::placeholder,
+.login-box input::placeholder,
+.buscador input::placeholder {
   color: var(--muted);
-  font-size: 0.85rem;
+  opacity: 1;                  /* Firefox lo aclara al 54% si no se fija */
+}
+
+/* Autorrelleno. Chrome pinta los campos que ha guardado con un fondo propio
+   que ignora background-color, de modo que en el tema oscuro quedaba una caja
+   clara con el texto casi ilegible. Se nota sobre todo en las contraseñas,
+   que son precisamente las que el navegador guarda. No hay propiedad que lo
+   desactive: la única forma de taparlo es una sombra interior sólida, y el
+   texto hay que recolorearlo aparte porque `color` tampoco llega. */
+.campo input:-webkit-autofill,
+.login-box input:-webkit-autofill,
+.buscador input:-webkit-autofill,
+.campo input:-webkit-autofill:focus,
+.login-box input:-webkit-autofill:focus,
+.buscador input:-webkit-autofill:focus {
+  -webkit-box-shadow: inset 0 0 0 100px var(--bg);
+  -webkit-text-fill-color: var(--fg);
+  caret-color: var(--fg);
+  border-color: var(--border);
 }
 
 .campo input:focus,
-.campo textarea:focus {
+.campo textarea:focus,
+.campo select:focus,
+.login-box input:focus,
+.buscador input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-color: transparent;
+}
+
+/* Ficheros. El control nativo trae su propio botón gris con el texto del
+   sistema operativo, y hay ocho a la vista entre subir juego y editar juego.
+   Se le da la caja de los demás campos y al botón el aspecto de los botones
+   de la página; el nombre del fichero elegido lo sigue escribiendo el
+   navegador, eso no se puede cambiar desde CSS. */
+/* Selector de fichero. Ya no queda ningún input[type="file"] a la vista: los
+   cuatro que siguen siendo nativos van con hidden y su propio botón. El input
+   se esconde con tamaño de un píxel en vez de display:none para que el teclado
+   pueda llegar hasta él, y el foco se dibuja sobre la caja entera. */
+.fichero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.34rem 0.5rem;
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+}
+
+.fichero input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+}
+
+.fichero:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+/* Va con .fichero delante porque .campo label ya fija display:block y un
+   margen inferior, y ganaría a una sola clase. */
+.fichero .fichero-btn {
+  display: inline-block;
+  flex: none;
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.fichero .fichero-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.fichero-nombre {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fichero-nombre.con-fichero {
+  color: var(--fg);
+}
+
+/* El desplegable de rol pierde su flecha con appearance:none, así que se
+   dibuja una con dos gradientes: hereda el color del tema y no arrastra una
+   imagen externa. */
+.campo select {
+  padding-right: 2rem;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 1.02rem center, right 0.72rem center;
+  background-size: 0.34rem 0.34rem;
+  background-repeat: no-repeat;
 }
 
 .campo-doble {
@@ -566,21 +709,9 @@ video.card-anim {
 }
 
 .login-box input {
-  width: 100%;
   margin-bottom: 1rem;
   padding: 0.6rem 0.75rem;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
   border-radius: 0.5rem;
-  font: inherit;
-  font-size: 1rem; /* 16px evita el zoom automático en iOS */
-}
-
-.login-box input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: transparent;
 }
 
 .error {
@@ -949,20 +1080,9 @@ kbd {
 }
 
 .buscador input {
-  width: 100%;
-  padding: 0.55rem 5rem 0.55rem 0.85rem;
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--border);
+  padding: 0.55rem 5rem 0.55rem 0.85rem;   /* hueco a la derecha para el contador */
+  background-color: var(--card);
   border-radius: 0.55rem;
-  font: inherit;
-  font-size: 1rem;             /* 16px: evita el zoom automático de iOS */
-}
-
-.buscador input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: transparent;
 }
 
 .buscador-cuenta {
@@ -1178,23 +1298,6 @@ kbd {
 }
 
 .modal-estrecho { max-width: 26rem; }
-
-.campo select {
-  width: 100%;
-  padding: 0.5rem 0.7rem;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 0.45rem;
-  font: inherit;
-  font-size: 1rem;
-}
-
-.campo select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: transparent;
-}
 
 /* ── Podio de estadísticas ──────────────────────────────────────────────── */
 
