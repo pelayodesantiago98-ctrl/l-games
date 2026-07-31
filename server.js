@@ -73,6 +73,17 @@ const esc = (value) =>
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[c]);
 
+/*
+ * Texto comparable: minúsculas y sin acentos, para que buscar "pokemon"
+ * encuentre "Pokémon" y "mario" encuentre "MARIO". La misma función se usa en
+ * el servidor al generar el índice y en el navegador al teclear, así que las
+ * dos partes comparan exactamente lo mismo.
+ */
+const normaliza = (t) => String(t == null ? '' : t)
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[̀-ͯ]/g, '');
+
 function readJson(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -131,14 +142,42 @@ const romBase = (name) => name.replace(/\.[^.]+$/, '');
  * para versionar la URL: sin eso un cambio de imagen no se vería, porque se
  * sirven con caché de un año.
  */
+/*
+ * Índice de nombres por directorio, cacheado y revalidado con el mtime de la
+ * carpeta. Antes cada búsqueda probaba extensión por extensión con statSync:
+ * hasta cinco llamadas por imagen y treinta y ocho para pintar el índice de
+ * catorce consolas. Con doscientos juegos serían más de quinientas. Ahora es
+ * un readdir por carpeta y una consulta en memoria.
+ */
+const cacheDirs = new Map();
+
+function ficherosDe(subdir) {
+  const dir = path.join(MEDIA_ROOT, subdir);
+  try {
+    const mtime = fs.statSync(dir).mtimeMs;
+    const guardado = cacheDirs.get(subdir);
+    if (guardado && guardado.mtime === mtime) return guardado.nombres;
+    const nombres = new Set(fs.readdirSync(dir));
+    cacheDirs.set(subdir, { mtime, nombres });
+    return nombres;
+  } catch {
+    cacheDirs.delete(subdir);
+    return new Set();
+  }
+}
+
 function buscarMedia(subdir, base, sufijo, extensiones) {
   const nombre = safeName(base) + sufijo;
+  const hay = ficherosDe(subdir);
   for (const ext of extensiones) {
+    if (!hay.has(nombre + ext)) continue;
     const rel = subdir ? `${subdir}/${nombre}${ext}` : `${nombre}${ext}`;
     try {
+      // Un solo stat, y solo del fichero que existe: hace falta su mtime para
+      // versionar la URL, porque se sirve con caché de un año.
       const st = fs.statSync(path.join(MEDIA_ROOT, rel));
       return { archivo: nombre + ext, rel, ext, url: `/media/${rel}?v=${Math.floor(st.mtimeMs)}` };
-    } catch { /* siguiente extensión */ }
+    } catch { /* desapareció entre el listado y el stat */ }
   }
   return null;
 }
@@ -1018,50 +1057,210 @@ ${r.juegos.map(filaJuego).join('\n')}
   });
 }
 
-function indexPage(user, systems, counts) {
-  const card = (s) => {
-    const portada = portadaDe(s.id);
-    const anim = animacionDe(s.id);
-    const esVideo = anim && (anim.ext === '.mp4' || anim.ext === '.webm');
+const esVideoMedia = (m) => !!m && (m.ext === '.mp4' || m.ext === '.webm');
 
-    // La animación se declara como variable CSS y solo se usa dentro de :hover,
-    // así el navegador no descarga el GIF hasta que hace falta.
-    const vars = [
-      portada ? `--portada:url('${esc(portada.url)}')` : '',
-      anim && !esVideo ? `--anim:url('${esc(anim.url)}')` : '',
-    ].filter(Boolean).join(';');
+/*
+ * Buscador que filtra en el navegador sobre lo ya pintado, comparando contra el
+ * atributo data-busca que el servidor deja normalizado. No hace falta ir al
+ * servidor por cada tecla, y el catálogo cabe de sobra en la página.
+ */
+function buscadorHTML({ selector, etiqueta, vacio }) {
+  const id = 'buscador';
+  return `    <div class="buscador">
+      <input id="${id}" type="search" placeholder="${esc(etiqueta)}" autocomplete="off" aria-label="${esc(etiqueta)}">
+      <span id="${id}-cuenta" class="buscador-cuenta"></span>
+    </div>
+    <p id="${id}-vacio" class="empty" hidden>${esc(vacio)}</p>
+    <script>
+      (function () {
+        var caja = document.getElementById('${id}');
+        var cuenta = document.getElementById('${id}-cuenta');
+        var vacio = document.getElementById('${id}-vacio');
+        var elementos = [];
+        var total = 0;
 
-    const capaAnim = esVideo
-      ? `<video class="card-anim" muted loop playsinline preload="none" aria-hidden="true">
+        function normaliza(t) {
+          return String(t || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+        }
+
+        function filtrar() {
+          var q = normaliza(caja.value.trim());
+          var visibles = 0;
+          elementos.forEach(function (el) {
+            var ok = !q || (el.dataset.busca || '').indexOf(q) !== -1;
+            el.hidden = !ok;
+            if (ok) visibles++;
+          });
+          vacio.hidden = visibles > 0;
+          cuenta.textContent = q ? visibles + ' de ' + total : '';
+        }
+
+        /*
+         * La rejilla se pinta DESPUÉS de este bloque, así que buscarla ahora
+         * daría una lista vacía y el filtro no ocultaría nada. Se recoge cuando
+         * el documento está completo.
+         */
+        function preparar() {
+          elementos = Array.from(document.querySelectorAll(${JSON.stringify(selector)}));
+          total = elementos.length;
+          if (caja.value) filtrar();          // por si el navegador la restauró
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', preparar);
+        } else {
+          preparar();
+        }
+
+        caja.addEventListener('input', filtrar);
+        // Escape limpia la búsqueda sin tener que borrar a mano.
+        caja.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') { caja.value = ''; filtrar(); }
+        });
+      })();
+    </script>`;
+}
+
+/*
+ * Consolas y juegos pintan la misma tarjeta: imagen de fondo, animación en
+ * hover y un bloque de texto. Estaba duplicada en dos sitios y cualquier
+ * retoque había que hacerlo dos veces, con el riesgo de que se separaran.
+ */
+function tarjetaHTML({ href, clases = [], portada, anim, esquina, cuerpo, datos = {} }) {
+  const esVideo = esVideoMedia(anim);
+
+  // La animación va en una variable CSS que solo se usa dentro de :hover, así
+  // el navegador no descarga el GIF hasta que hace falta.
+  const vars = [
+    portada ? `--portada:url('${esc(portada.url)}')` : '',
+    anim && !esVideo ? `--anim:url('${esc(anim.url)}')` : '',
+  ].filter(Boolean).join(';');
+
+  const capaAnim = esVideo
+    ? `<video class="card-anim" muted loop playsinline preload="none" aria-hidden="true">
             <source src="${esc(anim.url)}" type="video/${anim.ext.slice(1)}">
           </video>`
-      : (anim ? '<span class="card-anim" aria-hidden="true"></span>' : '');
+    : (anim ? '<span class="card-anim" aria-hidden="true"></span>' : '');
 
-    const clases = ['card'];
-    if (portada) clases.push('con-portada');
-    if (anim) clases.push('con-anim');
+  const todas = ['card', ...clases];
+  if (portada) todas.push('con-portada');
+  if (anim) todas.push('con-anim');
 
-    return `        <a class="${clases.join(' ')}" href="/system/${esc(s.id)}"${vars ? ` style="${vars}"` : ''}>
+  const attrs = Object.entries(datos)
+    .map(([k, v]) => `\n           data-${k}="${esc(v == null ? '' : v)}"`)
+    .join('');
+
+  return `        <a class="${todas.join(' ')}" href="${esc(href)}"${vars ? ` style="${vars}"` : ''}${attrs}>
           ${portada ? '<span class="card-fondo" aria-hidden="true"></span>' : ''}
           ${capaAnim}
-          <span class="card-year">${esc(s.year || '')}</span>
+          ${esquina ? `<span class="card-year">${esc(esquina)}</span>` : ''}
           <span class="card-texto">
-            <h2 class="card-title">${esc(s.name)}</h2>
-            <p class="card-sub">${esc(s.fullName || '')}</p>
-            <span class="card-count">${counts[s.id] || 0} ${counts[s.id] === 1 ? 'juego' : 'juegos'}</span>
+${cuerpo}
           </span>
         </a>`;
-  };
+}
+
+function indexPage(user, systems, counts, juegos) {
+  const card = (s) => tarjetaHTML({
+    href: `/system/${s.id}`,
+    portada: portadaDe(s.id),
+    anim: animacionDe(s.id),
+    esquina: s.year || '',
+    cuerpo: `            <h2 class="card-title">${esc(s.name)}</h2>
+            <p class="card-sub">${esc(s.fullName || '')}</p>
+            <span class="card-count">${counts[s.id] || 0} ${counts[s.id] === 1 ? 'juego' : 'juegos'}</span>`,
+  });
+
+  // Tarjeta de juego para los resultados de la búsqueda: mismo aspecto que en
+  // la página de su consola, pero indicando a cuál pertenece.
+  const cardJuego = (j) => tarjetaHTML({
+    href: `/play/${j.sistemaId}/${encodeURIComponent(j.rom)}`,
+    clases: ['card-juego'],
+    portada: j.portada,
+    anim: j.anim,
+    cuerpo: `            <h2 class="card-title">${esc(j.nombre)}</h2>
+            <p class="card-sub">${esc(j.sistema)}</p>`,
+    datos: { busca: normaliza(`${j.nombre} ${j.rom} ${j.sistema}`) },
+  });
   return layout({
     title: 'L-games',
     user,
     body: `    <div class="head">
       <h1 class="title">Consolas</h1>
-      <p class="subtitle">${systems.length} sistemas disponibles.</p>
+      <p class="subtitle">${systems.length} sistemas · ${juegos.length} ${juegos.length === 1 ? 'juego' : 'juegos'}</p>
     </div>
-    <div class="grid">
+
+    <div class="buscador">
+      <input id="buscador" type="search" placeholder="Buscar un juego" autocomplete="off" aria-label="Buscar un juego">
+      <span id="buscador-cuenta" class="buscador-cuenta"></span>
+    </div>
+    <p id="buscador-vacio" class="empty" hidden>Ningún juego coincide.</p>
+
+    <div id="rejilla-consolas" class="grid">
 ${systems.map(card).join('\n')}
     </div>
+
+    <div id="rejilla-juegos" class="grid grid-juegos" hidden>
+${juegos.map(cardJuego).join('\n')}
+    </div>
+
+    <script>
+      (function () {
+        var caja      = document.getElementById('buscador');
+        var cuenta    = document.getElementById('buscador-cuenta');
+        var vacio     = document.getElementById('buscador-vacio');
+        var consolas  = document.getElementById('rejilla-consolas');
+        var rejilla   = document.getElementById('rejilla-juegos');
+        var juegos    = [];
+
+        function normaliza(t) {
+          return String(t || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+        }
+
+        function filtrar() {
+          var q = normaliza(caja.value.trim());
+
+          // Sin texto se vuelve al índice de consolas, que es la vista normal.
+          if (!q) {
+            consolas.hidden = false;
+            rejilla.hidden = true;
+            vacio.hidden = true;
+            cuenta.textContent = '';
+            return;
+          }
+
+          var visibles = 0;
+          juegos.forEach(function (el) {
+            var ok = (el.dataset.busca || '').indexOf(q) !== -1;
+            el.hidden = !ok;
+            if (ok) visibles++;
+          });
+          consolas.hidden = true;
+          rejilla.hidden = false;
+          vacio.hidden = visibles > 0;
+          cuenta.textContent = visibles + ' de ' + juegos.length;
+        }
+
+        /*
+         * Las rejillas se pintan después de este bloque, así que buscarlas
+         * ahora daría una lista vacía y el filtro no ocultaría nada.
+         */
+        function preparar() {
+          juegos = Array.from(document.querySelectorAll('#rejilla-juegos > .card'));
+          if (caja.value) filtrar();
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', preparar);
+        } else {
+          preparar();
+        }
+
+        caja.addEventListener('input', filtrar);
+        caja.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') { caja.value = ''; filtrar(); }
+        });
+      })();
+    </script>
 
     <script>
       /*
@@ -1092,53 +1291,41 @@ function systemPage(user, system, roms, admin) {
 
   // Mismo tratamiento que las tarjetas de consola: imagen fija, animación en
   // hover y carga diferida de esta última.
+  /*
+   * Sigue siendo un enlace de verdad: sin JavaScript lleva directo a jugar.
+   * El detalle se abre interceptando el clic, no sustituyéndolo.
+   */
   const tarjetaJuego = (r) => {
     const meta = metaJuego(system.id, r.name);
-    const img = portadaJuego(system.id, r.name);
     const mov = animacionJuego(system.id, r.name);       // al pasar el ratón
     const mov2 = animacion2Juego(system.id, r.name);     // dentro del detalle
-    const esVideo = mov && (mov.ext === '.mp4' || mov.ext === '.webm');
-    const esVideo2 = mov2 && (mov2.ext === '.mp4' || mov2.ext === '.webm');
+    const img = portadaJuego(system.id, r.name);
 
-    const vars = [
-      img ? `--portada:url('${esc(img.url)}')` : '',
-      mov && !esVideo ? `--anim:url('${esc(mov.url)}')` : '',
-    ].filter(Boolean).join(';');
-
-    const capaAnim = esVideo
-      ? `<video class="card-anim" muted loop playsinline preload="none" aria-hidden="true">
-            <source src="${esc(mov.url)}" type="video/${mov.ext.slice(1)}">
-          </video>`
-      : (mov ? '<span class="card-anim" aria-hidden="true"></span>' : '');
-
-    const clases = ['card', 'card-juego'];
-    if (img) clases.push('con-portada');
-    if (mov) clases.push('con-anim');
-
-    /*
-     * Sigue siendo un enlace de verdad: sin JavaScript lleva directo a jugar.
-     * El detalle se abre interceptando el clic, no sustituyéndolo.
-     */
-    return `        <a class="${clases.join(' ')}" href="/play/${esc(system.id)}/${encodeURIComponent(r.name)}"${vars ? ` style="${vars}"` : ''}
-           data-nombre="${esc(meta.nombre)}"
-           data-descripcion="${esc(meta.descripcion)}"
-           data-rom="${esc(r.name)}"
-           data-anim="${esc(mov ? mov.url : '')}"
-           data-anim-video="${esVideo ? '1' : ''}"
-           data-anim2="${esc(mov2 ? mov2.url : '')}"
-           data-anim2-video="${esVideo2 ? '1' : ''}"
-           data-portada="${esc(img ? img.url : '')}"
-           data-peso="${esc(humanSize(r.size))}">
-          ${img ? '<span class="card-fondo" aria-hidden="true"></span>' : ''}
-          ${capaAnim}
-          <span class="card-texto">
-            <h2 class="card-title">${esc(meta.nombre)}</h2>
-          </span>
-        </a>`;
+    return tarjetaHTML({
+      href: `/play/${system.id}/${encodeURIComponent(r.name)}`,
+      clases: ['card-juego'],
+      portada: img,
+      anim: mov,
+      cuerpo: `            <h2 class="card-title">${esc(meta.nombre)}</h2>`,
+      datos: {
+        // El buscador filtra sobre esto, sin distinguir mayúsculas ni acentos.
+        busca: normaliza(`${meta.nombre} ${r.name} ${meta.descripcion}`),
+        nombre: meta.nombre,
+        descripcion: meta.descripcion,
+        rom: r.name,
+        anim: mov ? mov.url : '',
+        'anim-video': esVideoMedia(mov) ? '1' : '',
+        anim2: mov2 ? mov2.url : '',
+        'anim2-video': esVideoMedia(mov2) ? '1' : '',
+        portada: img ? img.url : '',
+        peso: humanSize(r.size),
+      },
+    });
   };
 
   const lista = roms.length
-    ? `    <div class="grid grid-juegos">\n${roms.map(tarjetaJuego).join('\n')}\n    </div>
+    ? `${buscadorHTML({ selector: '.grid-juegos > .card', etiqueta: 'Buscar juego', vacio: 'Ningún juego coincide.' })}
+    <div class="grid grid-juegos">\n${roms.map(tarjetaJuego).join('\n')}\n    </div>
 
     <div id="detalle" class="modal" hidden>
       <div class="modal-fondo"></div>
@@ -2186,8 +2373,27 @@ app.put('/api/usuario/:nombre', requireAuth, requireAdmin, jsonPequeno, async (r
 app.get('/', requireAuth, async (req, res) => {
   const systems = loadSystems();
   const counts = {};
-  for (const s of systems) counts[s.id] = (await listRoms(s.id)).length;
-  res.type('html').send(indexPage(req.user, systems, counts));
+  const juegos = [];
+
+  // Se recorre una sola vez: de aquí salen el contador de cada consola y el
+  // catálogo completo que alimenta el buscador.
+  for (const s of systems) {
+    const roms = await listRoms(s.id);
+    counts[s.id] = roms.length;
+    for (const r of roms) {
+      juegos.push({
+        sistemaId: s.id,
+        sistema: s.name,
+        rom: r.name,
+        nombre: metaJuego(s.id, r.name).nombre,
+        portada: portadaJuego(s.id, r.name),
+        anim: animacionJuego(s.id, r.name),
+      });
+    }
+  }
+  juegos.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  res.type('html').send(indexPage(req.user, systems, counts, juegos));
 });
 
 app.get('/controles', requireAuth, (req, res) => {

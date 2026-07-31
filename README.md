@@ -182,6 +182,25 @@ con `object-fit: cover` para que no se deforme sea cual sea su proporción. Sin
 foto se usan las iniciales: dos si hay nombre y apellido, y si no las dos
 primeras letras.
 
+## Buscadores
+
+En el **índice** el buscador filtra **juegos de todas las consolas**, no
+consolas: al escribir se oculta la rejilla de sistemas y aparecen las carátulas
+de los juegos que coinciden, con su consola debajo y enlace directo a jugar.
+Vaciar el campo devuelve la vista de consolas.
+
+**Dentro de una consola** filtra sus juegos.
+
+Ambos comparan contra un atributo `data-busca` que el servidor deja ya
+normalizado —minúsculas y sin acentos— con la misma función que usa el
+navegador al teclear, así que las dos partes comparan exactamente lo mismo y
+buscar `pokemon` encuentra `Pokémon`.
+
+El filtrado ocurre en el navegador sobre lo ya pintado: el catálogo cabe de
+sobra en la página y no hay que ir al servidor por cada tecla. **El script
+recoge las tarjetas en `DOMContentLoaded`**, no al vuelo: las rejillas se pintan
+después del bloque y buscarlas antes daba una lista vacía que no filtraba nada.
+
 ## Roles
 
 Cada usuario tiene un `rol` en `config/users.json`: `usuario` (el de quien se

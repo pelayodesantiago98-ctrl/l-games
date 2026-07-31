@@ -260,11 +260,22 @@ button.avatar {
 
 /* ── Rejilla de consolas ────────────────────────────────────────────────── */
 
+/*
+ * Flex en vez de grid a propósito. Con grid, una última fila incompleta se
+ * queda pegada a la izquierda —catorce consolas en cuatro columnas dejan dos
+ * sueltas abajo— y no hay forma limpia de centrar solo esa fila. Con flex-wrap
+ * y justify-content:center cada fila se centra por su cuenta, la última
+ * incluida. El precio es que las tarjetas no se estiran hasta llenar el ancho:
+ * mantienen su medida base y el sobrante se reparte a los lados.
+ */
 .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 0.9rem;
 }
+
+.grid > .card { flex: 0 1 13.5rem; }
 
 .card {
   position: relative;
@@ -930,11 +941,44 @@ kbd {
 
 .volver { margin-top: 2.5rem; }
 
+/* ── Buscador ───────────────────────────────────────────────────────────── */
+
+.buscador {
+  position: relative;
+  margin-bottom: 1.25rem;
+}
+
+.buscador input {
+  width: 100%;
+  padding: 0.55rem 5rem 0.55rem 0.85rem;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  font: inherit;
+  font-size: 1rem;             /* 16px: evita el zoom automático de iOS */
+}
+
+.buscador input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.buscador-cuenta {
+  position: absolute;
+  top: 50%;
+  right: 0.85rem;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 /* ── Tarjetas de juego: cuadradas ───────────────────────────────────────── */
 
-.grid-juegos {
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-}
+.grid-juegos > .card { flex: 0 1 11rem; }
 
 .card-juego {
   aspect-ratio: 1 / 1;         /* botón cuadrado, como una carátula */
@@ -1201,7 +1245,9 @@ kbd {
 
 @media (max-width: 40rem) {
   .wrap { padding: 1.75rem 1rem 3rem; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 0.7rem; }
+  .grid { gap: 0.7rem; }
+  .grid > .card { flex: 0 1 10.5rem; }
+  .grid-juegos > .card { flex: 0 1 9.5rem; }
   .card { padding: 1.1rem 1rem 0.95rem; }
   .card-title { font-size: 1rem; }
   .card-sub { display: none; }
