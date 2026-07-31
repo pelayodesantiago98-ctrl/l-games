@@ -51,6 +51,47 @@ Los clientes que suben un fichero sin `Content-Type` caen por defecto en
 `application/x-www-form-urlencoded`, y el parser rechazaría la ROM por tamaño
 antes de llegar al handler. Va montado solo en la ruta de login.
 
+## Interfaz
+
+Tres niveles: **consolas → juegos → jugar**. El índice muestra cuántos juegos
+tiene cada sistema; dentro de cada consola se listan sus ROMs con el tamaño y
+se sube contenido nuevo desde la propia web.
+
+Hay una **guía de controles** en `/controles`, enlazada desde la barra superior.
+El mapeo de teclado no está escrito a mano: sale de `defaultControllers` en
+`data/src/emulator.js`. EmulatorJS usa el estándar RetroPad, así que cada
+consola nombra sus botones de forma distinta pero por debajo son los mismos
+cuatro; la guía incluye la tabla de equivalencias.
+
+### En móvil y tablet
+
+- **La pantalla de juego es fija**: no se desplaza en ningún eje, no rebota en
+  los bordes y no hace zoom por doble toque. El resto del sitio conserva su
+  scroll, porque la lista de consolas y la guía no caben en una pantalla.
+- **En vertical el mando virtual va debajo del juego**, no encima: el lienzo
+  ocupa el 44% superior y el mando el 56% restante. En apaisado se oculta la
+  barra superior y los controles caen sobre las bandas negras laterales.
+- Botón **Ajustes** en la esquina superior derecha, solo en dispositivos
+  táctiles. Abre el menú del emulador con guardar y cargar estado, exportar e
+  importar partida, trucos, ajustes de control, volumen y pantalla completa.
+  Llama a `EJS_emulator.menu.open(true)`: sin ese `true` la barra se
+  autooculta a los tres segundos, que es lo que la hacía inservible con el
+  dedo. Se muestra con `(hover: none) and (pointer: coarse)`, que distingue un
+  dedo de un ratón mejor que el ancho de pantalla.
+
+## Rendimiento
+
+- El CSS se sirve con `?v=<mtime>` y se cachea un año con `immutable`. Sin ese
+  versionado los cambios de estilos quedaban atrapados una hora en el
+  navegador y las pruebas medían valores viejos.
+- Los cores de EmulatorJS también van a un año con `immutable`: son cientos de
+  KB que no cambian dentro de una misma versión.
+- El HTML se sirve con `private, no-store`. No es rendimiento sino corrección:
+  cada página lleva el nombre del usuario y sus partidas, y no debe quedarse
+  en ninguna caché intermedia.
+- La compresión la aplica nginx, configurada en el repositorio
+  **lepayimio-infra**.
+
 ## Sistemas
 
 Los 14 sistemas están definidos en `config/systems.json`. Añadir uno es añadir
