@@ -612,11 +612,33 @@ app.disable('x-powered-by');
  */
 const formulario = express.urlencoded({ extended: false, limit: '10kb' });
 
+/*
+ * Los cores de EmulatorJS pesan cientos de KB cada uno y no cambian nunca
+ * dentro de una misma versión: un año e immutable ahorra volver a bajarlos.
+ */
 app.use('/data', express.static(path.join(__dirname, 'data'), {
-  maxAge: '30d',
+  maxAge: '1y',
+  immutable: true,
   setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'same-origin'),
 }));
-app.use('/static', express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+
+// Sirve con ?v=<mtime>, así que también puede cachearse un año.
+app.use('/static', express.static(path.join(__dirname, 'public'), {
+  maxAge: '1y',
+  immutable: true,
+}));
+
+/*
+ * Todo el HTML de aquí es de un usuario concreto: listados de sus partidas,
+ * su nombre en la cabecera. No debe quedarse en ninguna caché intermedia,
+ * y menos en la de Cloudflare.
+ */
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/data/') && !req.path.startsWith('/static/')) {
+    res.set('Cache-Control', 'private, no-store');
+  }
+  next();
+});
 
 app.get('/login', (req, res) => {
   if (readSession(req)) return res.redirect('/');
