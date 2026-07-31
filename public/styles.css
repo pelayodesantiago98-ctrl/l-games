@@ -51,11 +51,22 @@ body {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
   font-weight: 650;
   font-size: 1.05rem;
   letter-spacing: -0.01em;
   color: var(--fg);
   text-decoration: none;
+}
+
+.version {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .logout {
@@ -131,6 +142,78 @@ body {
   align-items: center;
   gap: 1.5rem;
   flex-wrap: wrap;
+}
+
+/* ── Menú del avatar ────────────────────────────────────────────────────── */
+
+.menu-usuario {
+  position: relative;
+}
+
+button.avatar {
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.desplegable {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;                    /* ancla a la derecha: crece hacia la izquierda */
+  min-width: 12.5rem;
+  padding: 0.4rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  box-shadow: 0 0.6rem 1.8rem rgba(0, 0, 0, 0.22);
+  z-index: 50;
+  animation: desplegar 0.14s ease-out;
+}
+
+@keyframes desplegar {
+  from { opacity: 0; transform: translateY(-0.35rem); }
+  to   { opacity: 1; transform: none; }
+}
+
+.desplegable-quien {
+  display: block;
+  padding: 0.5rem 0.7rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.35rem;
+  line-height: 1.35;
+}
+
+.desplegable-quien b { display: block; font-size: 0.9rem; }
+.desplegable-quien small { color: var(--muted); font-size: 0.78rem; }
+
+.desplegable a,
+.desplegable button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  background: none;
+  border: none;
+  border-radius: 0.4rem;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.desplegable a:hover,
+.desplegable button:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.desplegable form { margin: 0; }
+
+.desplegable form button {
+  margin-top: 0.35rem;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 0.4rem 0.4rem;
+  color: var(--muted);
 }
 
 /* ── Contenedor ─────────────────────────────────────────────────────────── */
@@ -211,8 +294,13 @@ body {
 .card-fondo {
   z-index: 0;
   background-image: var(--portada);
+  /* Blanco detrás: muchas carátulas y logos vienen en PNG con transparencia,
+     y sobre el color de la tarjeta —oscuro en tema noche— se perderían. */
+  background-color: #fff;
   transition: transform 0.4s ease;
 }
+
+.card-anim { background-color: #fff; }
 
 .card:hover .card-fondo { transform: scale(1.08); }
 
@@ -827,6 +915,195 @@ kbd {
 .lista li { margin-bottom: 0.45rem; }
 
 .volver { margin-top: 2.5rem; }
+
+/* ── Tarjetas de juego: cuadradas ───────────────────────────────────────── */
+
+.grid-juegos {
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+}
+
+.card-juego {
+  aspect-ratio: 1 / 1;         /* botón cuadrado, como una carátula */
+  min-height: 0;
+  padding: 0.9rem;
+}
+
+.card-juego .card-title {
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+/* ── Ventana modal ──────────────────────────────────────────────────────── */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.modal-fondo {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.modal-caja {
+  position: relative;
+  max-width: 46rem;
+  max-height: calc(100vh - 3rem);
+  margin: 1.5rem auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  overflow: hidden;
+}
+
+.modal-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-cabecera h2 { margin: 0; font-size: 1.05rem; }
+
+.modal-cuerpo {
+  padding: 0.5rem 1.25rem 1.5rem;
+  overflow-y: auto;
+}
+
+/* ── Detalle del juego: crece desde la tarjeta ──────────────────────────── */
+
+.detalle-caja {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  /* La misma curva para posición y tamaño: si difieren, el crecimiento
+     se percibe como un tirón en diagonal. */
+  transition: left 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+              top 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+              width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+              height 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.detalle-media {
+  flex: 0 0 auto;
+  height: 45%;
+  background: #000 center/cover no-repeat;
+}
+
+.detalle-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.detalle-cuerpo {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+  overflow-y: auto;
+  /* El contenido aparece cuando la caja ya casi ha crecido: si entra a la vez
+     se ve el texto reflowing mientras la caja se mueve. */
+  opacity: 0;
+  transition: opacity 0.18s ease 0.16s;
+}
+
+.detalle-caja.abierto .detalle-cuerpo { opacity: 1; }
+
+.detalle-nombre {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.detalle-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.detalle-peso {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-jugar {
+  margin-top: auto;
+  padding: 0.75rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.detalle-cuerpo .link-btn {
+  align-self: center;
+  margin-top: 0.15rem;
+}
+
+/* ── Podio de estadísticas ──────────────────────────────────────────────── */
+
+.podio {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: puesto;
+}
+
+.podio-item {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 0;
+}
+
+.podio-item + .podio-item { border-top: 1px solid var(--border); }
+
+.podio-puesto {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.podio-item:nth-child(2) .podio-puesto { opacity: 0.75; }
+.podio-item:nth-child(3) .podio-puesto { opacity: 0.55; }
+
+.podio-datos { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+
+.podio-nombre {
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podio-detalle { color: var(--muted); font-size: 0.82rem; }
 
 /* ── Móvil ──────────────────────────────────────────────────────────────── */
 

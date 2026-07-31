@@ -74,10 +74,50 @@ cuatro; la guía incluye la tabla de equivalencias.
 - Botón **Ajustes** en la esquina superior derecha, solo en dispositivos
   táctiles. Abre el menú del emulador con guardar y cargar estado, exportar e
   importar partida, trucos, ajustes de control, volumen y pantalla completa.
+
+**El menú del emulador solo se abre con el botón.** EmulatorJS ignora los
+`click` de tipo touch, pero su listener de `mousemove` no: un toque genera un
+mousemove sintético y, si cae cerca del borde inferior —donde está el mando
+virtual—, abría la barra sola mientras se jugaba. En lugar de pelearse con sus
+listeners internos, se vigila con un `MutationObserver` la clase que controla
+la visibilidad y se vuelve a ocultar si nadie pulsó Ajustes; así da igual por
+qué camino intente abrirse. Solo se aplica en táctil: con ratón el
+comportamiento por hover es el esperado.
+
   Llama a `EJS_emulator.menu.open(true)`: sin ese `true` la barra se
   autooculta a los tres segundos, que es lo que la hacía inservible con el
   dedo. Se muestra con `(hover: none) and (pointer: coarse)`, que distingue un
   dedo de un ratón mejor que el ancho de pantalla.
+
+## Menú de usuario y estadísticas
+
+La foto de perfil de la cabecera despliega un menú hacia la izquierda con
+**editar perfil**, **estadísticas**, **controles** y **desconectarse**.
+
+En `/estadisticas` hay un podio con los tres juegos y las tres consolas más
+usados, y un botón que abre el detalle completo por consola y por juego con
+tiempo, veces abierto y última partida.
+
+El uso se contabiliza en `config/estadisticas.json`, por usuario y juego. El
+cliente suma en tramos de 20 s y envía cada minuto, **sin contar los tramos en
+que el emulador está pausado o aún no ha arrancado**; al cerrar la pestaña
+manda lo pendiente con `sendBeacon`, que sobrevive a la descarga de la página
+cuando un `fetch` normal se cancelaría.
+
+El servidor **recorta cualquier envío a 300 segundos**: el cliente es
+manipulable y no debe poder inflar el contador. Las escrituras se encadenan en
+una sola promesa, porque dos latidos simultáneos harían leer-modificar-escribir
+en paralelo y uno perdería lo del otro.
+
+## Tarjetas de juego
+
+Son cuadradas, como una carátula. Al pulsarlas se abre una ventana que **crece
+desde la posición y el tamaño exactos de la tarjeta**, con la animación arriba,
+la descripción debajo y el botón JUGAR al final. Si el juego no tiene imagen ni
+gif, esa franja se oculta en vez de dejar un rectángulo negro.
+
+Siguen siendo enlaces de verdad: sin JavaScript llevan directamente a jugar, y
+con Ctrl o el botón central se abren en otra pestaña como cualquier enlace.
 
 ## Alta de usuarios
 

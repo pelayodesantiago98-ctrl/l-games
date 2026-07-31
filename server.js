@@ -37,6 +37,19 @@ const EXT_ANIMADA = ['.gif', '.webp', '.mp4', '.webm'];
 const MAX_MEDIA_BYTES = 24 * 1024 * 1024;
 
 /*
+ * Versión de la aplicación, tomada de package.json para no tenerla en dos
+ * sitios. Se lee una vez al arrancar: cambiarla exige reiniciar el servicio,
+ * igual que en L-notes.
+ */
+const VERSION = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+
+/*
  * Versión de los estáticos a partir de la fecha del fichero. Sin esto, el CSS
  * se queda cacheado una hora en el navegador y los cambios de maquetación no
  * llegan al usuario hasta que vacía la caché a mano.
@@ -158,6 +171,88 @@ async function guardarMetaJuego(systemId, rom, datos) {
   const temporal = `${JUEGOS_FILE}.tmp`;
   await fsp.writeFile(temporal, JSON.stringify(todos, null, 2) + '\n');
   await fsp.rename(temporal, JUEGOS_FILE);
+}
+
+// ─── estadísticas de uso ─────────────────────────────────────────────────────
+
+const ESTADISTICAS_FILE = path.join(CONFIG_DIR, 'estadisticas.json');
+const loadEstadisticas = () => readJson(ESTADISTICAS_FILE, {});
+
+/*
+ * Las escrituras se encadenan en una única promesa. Sin esto, dos latidos que
+ * llegaran a la vez harían leer-modificar-escribir en paralelo y uno pisaría al
+ * otro, perdiendo tiempo contabilizado.
+ */
+let colaEstadisticas = Promise.resolve();
+
+function anotarUso(usuario, systemId, rom, { veces = 0, segundos = 0 }) {
+  colaEstadisticas = colaEstadisticas.then(async () => {
+    const todas = loadEstadisticas();
+    const mio = todas[usuario] || (todas[usuario] = {});
+    const clave = claveJuego(systemId, rom);
+    const e = mio[clave] || (mio[clave] = { veces: 0, segundos: 0, ultima: null });
+    e.veces += veces;
+    e.segundos += segundos;
+    if (veces > 0 || segundos > 0) e.ultima = new Date().toISOString();
+
+    await fsp.mkdir(CONFIG_DIR, { recursive: true });
+    const temporal = `${ESTADISTICAS_FILE}.tmp`;
+    await fsp.writeFile(temporal, JSON.stringify(todas, null, 2) + '\n');
+    await fsp.rename(temporal, ESTADISTICAS_FILE);
+  }).catch((err) => console.error(`Anotando uso: ${err.message}`));
+  return colaEstadisticas;
+}
+
+// Devuelve el uso del usuario ya resuelto a nombres legibles y agregado por
+// consola, listo para pintar.
+function resumenDe(usuario) {
+  const mio = loadEstadisticas()[usuario] || {};
+  const sistemas = loadSystems();
+  const juegos = [];
+  const porConsola = new Map();
+
+  for (const [clave, datos] of Object.entries(mio)) {
+    const corte = clave.indexOf('/');
+    if (corte < 0) continue;
+    const sysId = clave.slice(0, corte);
+    const rom = clave.slice(corte + 1);
+    const sistema = sistemas.find((s) => s.id === sysId);
+    if (!sistema) continue;                      // consola retirada de la config
+
+    juegos.push({
+      sistema: sistema.name,
+      sistemaId: sysId,
+      rom,
+      nombre: metaJuego(sysId, rom).nombre,
+      veces: datos.veces || 0,
+      segundos: datos.segundos || 0,
+      ultima: datos.ultima || null,
+    });
+
+    const acc = porConsola.get(sysId) || { nombre: sistema.name, veces: 0, segundos: 0, juegos: 0 };
+    acc.veces += datos.veces || 0;
+    acc.segundos += datos.segundos || 0;
+    acc.juegos += 1;
+    porConsola.set(sysId, acc);
+  }
+
+  const porTiempo = (a, b) => b.segundos - a.segundos || b.veces - a.veces;
+  return {
+    juegos: juegos.sort(porTiempo),
+    consolas: [...porConsola.values()].sort(porTiempo),
+    totalSegundos: juegos.reduce((s, j) => s + j.segundos, 0),
+    totalVeces: juegos.reduce((s, j) => s + j.veces, 0),
+  };
+}
+
+function duracion(segundos) {
+  if (!segundos) return '—';
+  const h = Math.floor(segundos / 3600);
+  const m = Math.round((segundos % 3600) / 60);
+  if (h && m) return `${h} h ${m} min`;
+  if (h) return `${h} h`;
+  if (m) return `${m} min`;
+  return `${segundos} s`;
 }
 
 // ─── perfiles ────────────────────────────────────────────────────────────────
@@ -303,23 +398,56 @@ function layout({ title, body, user, wide, fija }) {
 </head>
 <body class="${fija ? 'fija' : ''}">
   <header class="topbar">
-    <a class="brand" href="/">L-games</a>
-    ${user ? `<nav class="topnav">
-      <a class="link-btn" href="/controles">Controles</a>
-      <form class="logout" method="post" action="/logout">
-        <button class="link-btn" type="submit">Salir</button>
-      </form>
-      <a class="avatar" href="/perfil" title="${esc(user)} — abrir perfil" aria-label="Perfil de ${esc(user)}">
+    <a class="brand" href="/">L-games<span class="version">v${esc(VERSION)}</span></a>
+    ${user ? `<nav class="menu-usuario">
+      <button class="avatar" id="btn-avatar" type="button"
+              aria-haspopup="true" aria-expanded="false" aria-controls="menu-desplegable"
+              aria-label="Menú de ${esc(user)}">
         ${foto
           ? `<img src="${esc(foto.url)}" alt="">`
           : `<span class="avatar-iniciales">${esc(inicialesDe(user))}</span>`}
-      </a>
+      </button>
+      <div class="desplegable" id="menu-desplegable" hidden>
+        <span class="desplegable-quien">
+          <b>${esc((loadUsers()[user] || {}).nombre || user)}</b>
+          <small>${esc(user)}</small>
+        </span>
+        <a href="/perfil">Editar perfil</a>
+        <a href="/estadisticas">Estadísticas</a>
+        <a href="/controles">Controles</a>
+        <form method="post" action="/logout">
+          <button type="submit">Desconectarse</button>
+        </form>
+      </div>
     </nav>` : ''}
   </header>
   <main class="${wide ? 'wrap wrap-wide' : 'wrap'}">
 ${body}
   </main>
-</body>
+${user ? `  <script>
+    (function () {
+      var btn = document.getElementById('btn-avatar');
+      var menu = document.getElementById('menu-desplegable');
+      if (!btn || !menu) return;
+
+      function abrir(v) {
+        menu.hidden = !v;
+        btn.setAttribute('aria-expanded', v ? 'true' : 'false');
+      }
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        abrir(menu.hidden);
+      });
+      // Un clic fuera o Escape lo cierran; dentro no, para poder pulsar opciones.
+      document.addEventListener('click', function (e) {
+        if (!menu.hidden && !menu.contains(e.target)) abrir(false);
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !menu.hidden) { abrir(false); btn.focus(); }
+      });
+    })();
+  </script>
+` : ''}</body>
 </html>
 `;
 }
@@ -562,6 +690,103 @@ ${consolas}
   });
 }
 
+function estadisticasPage(user) {
+  const r = resumenDe(user);
+
+  const podio = (lista, etiqueta) => lista.length
+    ? `      <ol class="podio">
+${lista.slice(0, 3).map((x, i) => `        <li class="podio-item">
+          <span class="podio-puesto">${i + 1}</span>
+          <span class="podio-datos">
+            <span class="podio-nombre">${esc(x.nombre)}</span>
+            <span class="podio-detalle">${esc(duracion(x.segundos))} · ${x.veces} ${x.veces === 1 ? 'vez' : 'veces'}${x.sistema ? ` · ${esc(x.sistema)}` : ''}</span>
+          </span>
+        </li>`).join('\n')}
+      </ol>`
+    : `      <p class="empty">Todavía no hay ${etiqueta}.</p>`;
+
+  const filaJuego = (j) => `          <tr>
+            <td>${esc(j.nombre)}</td>
+            <td class="nota">${esc(j.sistema)}</td>
+            <td>${esc(duracion(j.segundos))}</td>
+            <td>${j.veces}</td>
+            <td class="nota">${j.ultima ? esc(new Date(j.ultima).toLocaleDateString('es-ES')) : '—'}</td>
+          </tr>`;
+
+  const filaConsola = (c) => `          <tr>
+            <td>${esc(c.nombre)}</td>
+            <td class="nota">${c.juegos} ${c.juegos === 1 ? 'juego' : 'juegos'}</td>
+            <td>${esc(duracion(c.segundos))}</td>
+            <td>${c.veces}</td>
+          </tr>`;
+
+  return layout({
+    title: 'Estadísticas — L-games',
+    user,
+    body: `    <div class="head">
+      <h1 class="title">Estadísticas</h1>
+      <p class="subtitle">${esc(duracion(r.totalSegundos))} en total · ${r.totalVeces} ${r.totalVeces === 1 ? 'partida' : 'partidas'}</p>
+    </div>
+
+    <section class="panel">
+      <h2 class="panel-titulo">Juegos más usados</h2>
+${podio(r.juegos, 'partidas registradas')}
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-titulo">Consolas más usadas</h2>
+${podio(r.consolas, 'consolas usadas')}
+    </section>
+
+    <p><button id="btn-detalles" class="btn" type="button">Más detalles</button></p>
+
+    <div id="detalles" class="modal" hidden>
+      <div class="modal-fondo"></div>
+      <div class="modal-caja" role="dialog" aria-modal="true" aria-label="Detalle de estadísticas">
+        <div class="modal-cabecera">
+          <h2>Detalle completo</h2>
+          <button id="cerrar-detalles" class="link-btn" type="button">Cerrar</button>
+        </div>
+        <div class="modal-cuerpo">
+          <h3 class="sec">Por consola</h3>
+          ${r.consolas.length ? `<div class="tabla-scroll"><table class="tabla">
+            <thead><tr><th>Consola</th><th>Juegos</th><th>Tiempo</th><th>Veces</th></tr></thead>
+            <tbody>
+${r.consolas.map(filaConsola).join('\n')}
+            </tbody>
+          </table></div>` : '<p class="empty">Sin datos.</p>'}
+
+          <h3 class="sec">Por juego</h3>
+          ${r.juegos.length ? `<div class="tabla-scroll"><table class="tabla">
+            <thead><tr><th>Juego</th><th>Consola</th><th>Tiempo</th><th>Veces</th><th>Última vez</th></tr></thead>
+            <tbody>
+${r.juegos.map(filaJuego).join('\n')}
+            </tbody>
+          </table></div>` : '<p class="empty">Sin datos.</p>'}
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var modal = document.getElementById('detalles');
+        var abrir = document.getElementById('btn-detalles');
+        var cerrar = document.getElementById('cerrar-detalles');
+        function mostrar(v) {
+          modal.hidden = !v;
+          document.body.style.overflow = v ? 'hidden' : '';
+        }
+        abrir.addEventListener('click', function () { mostrar(true); });
+        cerrar.addEventListener('click', function () { mostrar(false); });
+        modal.querySelector('.modal-fondo').addEventListener('click', function () { mostrar(false); });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && !modal.hidden) mostrar(false);
+        });
+      })();
+    </script>`,
+  });
+}
+
 function indexPage(user, systems, counts) {
   const card = (s) => {
     const portada = portadaDe(s.id);
@@ -653,23 +878,45 @@ function systemPage(user, system, roms, admin) {
           </video>`
       : (mov ? '<span class="card-anim" aria-hidden="true"></span>' : '');
 
-    const clases = ['card'];
+    const clases = ['card', 'card-juego'];
     if (img) clases.push('con-portada');
     if (mov) clases.push('con-anim');
 
-    return `        <a class="${clases.join(' ')}" href="/play/${esc(system.id)}/${encodeURIComponent(r.name)}"${vars ? ` style="${vars}"` : ''}>
+    /*
+     * Sigue siendo un enlace de verdad: sin JavaScript lleva directo a jugar.
+     * El detalle se abre interceptando el clic, no sustituyéndolo.
+     */
+    return `        <a class="${clases.join(' ')}" href="/play/${esc(system.id)}/${encodeURIComponent(r.name)}"${vars ? ` style="${vars}"` : ''}
+           data-nombre="${esc(meta.nombre)}"
+           data-descripcion="${esc(meta.descripcion)}"
+           data-anim="${esc(mov ? mov.url : '')}"
+           data-anim-video="${esVideo ? '1' : ''}"
+           data-portada="${esc(img ? img.url : '')}"
+           data-peso="${esc(humanSize(r.size))}">
           ${img ? '<span class="card-fondo" aria-hidden="true"></span>' : ''}
           ${capaAnim}
-          <span class="card-year">${esc(humanSize(r.size))}</span>
           <span class="card-texto">
             <h2 class="card-title">${esc(meta.nombre)}</h2>
-            ${meta.descripcion ? `<p class="card-sub">${esc(meta.descripcion)}</p>` : ''}
           </span>
         </a>`;
   };
 
   const lista = roms.length
-    ? `    <div class="grid">\n${roms.map(tarjetaJuego).join('\n')}\n    </div>`
+    ? `    <div class="grid grid-juegos">\n${roms.map(tarjetaJuego).join('\n')}\n    </div>
+
+    <div id="detalle" class="modal" hidden>
+      <div class="modal-fondo"></div>
+      <div id="detalle-caja" class="detalle-caja" role="dialog" aria-modal="true">
+        <div id="detalle-media" class="detalle-media"></div>
+        <div class="detalle-cuerpo">
+          <h2 id="detalle-nombre" class="detalle-nombre"></h2>
+          <p id="detalle-desc" class="detalle-desc"></p>
+          <p id="detalle-peso" class="detalle-peso"></p>
+          <a id="detalle-jugar" class="btn btn-jugar" href="#">JUGAR</a>
+          <button id="detalle-cerrar" class="link-btn" type="button">Cerrar</button>
+        </div>
+      </div>
+    </div>`
     : `    <p class="empty">No hay juegos para esta consola todavía.${admin ? ' Súbelos con el botón <b>Subir juego</b>.' : ''}</p>`;
 
   return layout({
@@ -867,6 +1114,108 @@ ${lista}
             try { v.currentTime = 0; } catch (e) {}
           });
         });
+
+        // ── Detalle del juego ──────────────────────────────────────────────
+        var modal = document.getElementById('detalle');
+        if (modal) {
+          var caja   = document.getElementById('detalle-caja');
+          var media  = document.getElementById('detalle-media');
+          var origen = null;   // tarjeta desde la que se abrió, para cerrar hacia ella
+
+          function medidaDestino() {
+            var ancho = Math.min(440, window.innerWidth - 32);
+            var alto  = Math.min(600, window.innerHeight - 32);
+            return {
+              left: (window.innerWidth - ancho) / 2,
+              top: (window.innerHeight - alto) / 2,
+              width: ancho, height: alto,
+            };
+          }
+
+          function colocar(r) {
+            caja.style.left = r.left + 'px';
+            caja.style.top = r.top + 'px';
+            caja.style.width = r.width + 'px';
+            caja.style.height = r.height + 'px';
+          }
+
+          function abrir(card) {
+            origen = card;
+            document.getElementById('detalle-nombre').textContent = card.dataset.nombre || '';
+            var desc = document.getElementById('detalle-desc');
+            desc.textContent = card.dataset.descripcion || '';
+            desc.hidden = !card.dataset.descripcion;
+            document.getElementById('detalle-peso').textContent = card.dataset.peso || '';
+            document.getElementById('detalle-jugar').href = card.getAttribute('href');
+
+            // Arriba, la animación si la hay; si no, la imagen fija. Y si el
+            // juego no tiene ninguna, se oculta la franja en vez de dejar un
+            // rectángulo negro ocupando casi la mitad de la ventana.
+            media.innerHTML = '';
+            media.style.backgroundImage = '';
+            var fondo = card.dataset.anim || card.dataset.portada;
+            media.hidden = !fondo;
+            if (card.dataset.animVideo && card.dataset.anim) {
+              var v = document.createElement('video');
+              v.src = card.dataset.anim;
+              v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true;
+              media.appendChild(v);
+            } else if (fondo) {
+              media.style.backgroundImage = "url('" + fondo + "')";
+            }
+
+            modal.hidden = false;
+            document.body.style.overflow = 'hidden';
+
+            /*
+             * La caja nace con la posición y el tamaño exactos de la tarjeta y
+             * crece hasta el centro: de ahí la sensación de que se despliega
+             * desde la propia imagen. La transición se desactiva para colocarla
+             * en el origen, o animaría también ese salto.
+             */
+            var r = card.getBoundingClientRect();
+            caja.style.transition = 'none';
+            colocar({ left: r.left, top: r.top, width: r.width, height: r.height });
+            caja.classList.remove('abierto');
+            void caja.offsetWidth;                    // fuerza el reflujo
+            caja.style.transition = '';
+            requestAnimationFrame(function () {
+              caja.classList.add('abierto');
+              colocar(medidaDestino());
+            });
+          }
+
+          function cerrar() {
+            caja.classList.remove('abierto');
+            if (origen) {
+              var r = origen.getBoundingClientRect();
+              colocar({ left: r.left, top: r.top, width: r.width, height: r.height });
+            }
+            setTimeout(function () {
+              modal.hidden = true;
+              media.innerHTML = '';
+              document.body.style.overflow = '';
+            }, 280);
+          }
+
+          document.querySelectorAll('.card-juego').forEach(function (card) {
+            card.addEventListener('click', function (e) {
+              // Con Ctrl o rueda del ratón, que siga funcionando como enlace.
+              if (e.metaKey || e.ctrlKey || e.button !== 0) return;
+              e.preventDefault();
+              abrir(card);
+            });
+          });
+
+          document.getElementById('detalle-cerrar').addEventListener('click', cerrar);
+          modal.querySelector('.modal-fondo').addEventListener('click', cerrar);
+          document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !modal.hidden) cerrar();
+          });
+          window.addEventListener('resize', function () {
+            if (!modal.hidden) colocar(medidaDestino());
+          });
+        }
       })();
     </script>`,
   });
@@ -909,7 +1258,43 @@ function playPage(user, system, rom, tieneSave) {
 
       (function () {
         var SAVE_URL = ${JSON.stringify(saveUrl)};
+        var STATS_ABRIR  = ${JSON.stringify(`/api/stats/abrir/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`)};
+        var STATS_TIEMPO = ${JSON.stringify(`/api/stats/tiempo/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`)};
         var estado   = document.getElementById('save-status');
+
+        // ── Registro de uso ────────────────────────────────────────────────
+        var yaContado = false;
+        var acumulado = 0;
+
+        function contabilizarApertura() {
+          if (yaContado) return;
+          yaContado = true;
+          fetch(STATS_ABRIR, { method: 'POST', credentials: 'same-origin' })
+            .catch(function () { /* las estadísticas nunca deben estorbar */ });
+        }
+
+        function enviarTiempo(seg, conBeacon) {
+          if (!seg) return;
+          var cuerpo = JSON.stringify({ segundos: seg });
+          if (conBeacon && navigator.sendBeacon) {
+            // Al cerrar la pestaña un fetch normal se cancela; sendBeacon no.
+            navigator.sendBeacon(STATS_TIEMPO, new Blob([cuerpo], { type: 'application/json' }));
+            return;
+          }
+          fetch(STATS_TIEMPO, {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' }, body: cuerpo,
+          }).catch(function () {});
+        }
+
+        // Se suma en tramos de 20 s y se envía cada minuto: si el emulador está
+        // pausado o aún no arrancó, ese tramo no cuenta.
+        setInterval(function () {
+          var e = window.EJS_emulator;
+          if (!e || !e.started || e.paused) return;
+          acumulado += 20;
+          if (acumulado >= 60) { enviarTiempo(acumulado); acumulado = 0; }
+        }, 20000);
         var ultimo   = null;   // huella del ultimo save subido, para no repetir
         var guardando = false;
 
@@ -983,13 +1368,47 @@ function playPage(user, system, rom, tieneSave) {
          * completa, asi que no hace falta reimplementar ninguna.
          */
         var btnAjustes = document.getElementById('ajustes');
+        var menuPermitido = false;
+
+        /*
+         * En táctil la barra se abría sola al jugar. EmulatorJS ignora los
+         * eventos "click" de tipo touch, pero su listener de "mousemove" no:
+         * un toque genera un mousemove sintético y, si cae cerca del borde
+         * inferior —justo donde está el mando virtual—, dispara show().
+         *
+         * En vez de pelearse con sus listeners internos, se vigila la clase que
+         * controla la visibilidad y se vuelve a ocultar si nadie pulsó Ajustes.
+         * Así da igual por qué camino intente abrirse.
+         */
+        function vigilarMenu() {
+          if (!window.matchMedia('(hover: none)').matches) return;  // con ratón, comportamiento normal
+          var e = window.EJS_emulator;
+          if (!e || !e.elements || !e.elements.menu) return;
+          var barra = e.elements.menu;
+
+          new MutationObserver(function () {
+            var oculta = barra.classList.contains('ejs_menu_bar_hidden');
+            if (oculta) {
+              menuPermitido = false;          // se cerró: vuelta a empezar
+            } else if (!menuPermitido) {
+              barra.classList.add('ejs_menu_bar_hidden');
+            }
+          }).observe(barra, { attributes: true, attributeFilter: ['class'] });
+        }
+
         if (btnAjustes) {
           btnAjustes.addEventListener('click', function (ev) {
             ev.stopPropagation();
             var e = window.EJS_emulator;
             if (!e || !e.menu || !e.elements || !e.elements.menu) return;
             var oculto = e.elements.menu.classList.contains('ejs_menu_bar_hidden');
-            if (oculto) { e.menu.open(true); } else { e.menu.close(); }
+            if (oculto) {
+              menuPermitido = true;
+              e.menu.open(true);
+            } else {
+              menuPermitido = false;
+              e.menu.close();
+            }
           });
         }
 
@@ -1038,7 +1457,11 @@ function playPage(user, system, rom, tieneSave) {
         // El boton propio de EmulatorJS: al haber listener, cancela su descarga
         // y guardamos en el servidor.
         window.EJS_onSaveSave = function () { guardar('boton'); };
-        window.EJS_onGameStart = function () { setTimeout(restaurar, 600); };
+        window.EJS_onGameStart = function () {
+          setTimeout(restaurar, 600);
+          vigilarMenu();
+          contabilizarApertura();
+        };
 
         setInterval(function () { guardar('periodico'); }, 30000);
 
@@ -1048,7 +1471,11 @@ function playPage(user, system, rom, tieneSave) {
 
         // sendBeacon no sirve: necesitamos leer la SRAM antes de que muera la
         // pagina, asi que guardamos de forma sincrona en la medida de lo posible.
-        window.addEventListener('pagehide', function () { guardar('salida'); });
+        window.addEventListener('pagehide', function () {
+          guardar('salida');
+          enviarTiempo(acumulado, true);
+          acumulado = 0;
+        });
       })();
     </script>
     <script src="/data/loader.js"></script>`,
@@ -1296,6 +1723,35 @@ app.get('/', requireAuth, async (req, res) => {
 
 app.get('/controles', requireAuth, (req, res) => {
   res.type('html').send(controlsPage(req.user));
+});
+
+app.get('/estadisticas', requireAuth, (req, res) => {
+  res.type('html').send(estadisticasPage(req.user));
+});
+
+// ─── API: registro de uso ────────────────────────────────────────────────────
+
+const jsonPequeno = express.json({ limit: '2kb' });
+
+app.post('/api/stats/abrir/:id/:rom', requireAuth, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+  await anotarUso(req.user, system.id, rom.name, { veces: 1 });
+  res.json({ ok: true });
+});
+
+app.post('/api/stats/tiempo/:id/:rom', requireAuth, jsonPequeno, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+
+  // Tope defensivo: un cliente manipulado no debe poder inflar el contador.
+  const segundos = Math.max(0, Math.min(300, Number((req.body || {}).segundos) || 0));
+  if (segundos > 0) await anotarUso(req.user, system.id, rom.name, { segundos });
+  res.json({ ok: true, segundos });
 });
 
 app.get('/system/:id', requireAuth, async (req, res) => {
