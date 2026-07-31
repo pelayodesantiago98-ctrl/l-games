@@ -61,12 +61,18 @@ body {
   text-decoration: none;
 }
 
+/* Misma píldora que en L-notes: acento translúcido, borde y esquinas redondas. */
 .version {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0;
+  padding: 0.12rem 0.42rem;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
+  line-height: 1.5;
 }
 
 .logout {
@@ -1055,10 +1061,23 @@ kbd {
   text-align: center;
 }
 
-.detalle-cuerpo .link-btn {
-  align-self: center;
+.detalle-pie {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
   margin-top: 0.15rem;
 }
+
+.campo label small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* En modo edición la ventana lleva formulario: necesita respirar. */
+#detalle-edicion { gap: 0; }
+#detalle-edicion .campo { margin-bottom: 0.75rem; }
+#detalle-edicion .btn { margin-top: 0.35rem; }
 
 /* ── Podio de estadísticas ──────────────────────────────────────────────── */
 

@@ -196,7 +196,7 @@ se suben desde la página de la consola, en *Apariencia de la tarjeta*, y se
 guardan en `media/consolas/` como `<id>.<ext>` y `<id>-anim.<ext>`.
 
 - Imagen: `.jpg .jpeg .png .webp .avif`
-- Animación: `.gif .webp .mp4 .webm`
+- Animación 1 y 2: `.gif .webp .mp4 .webm`
 - Máximo 24 MB por fichero
 
 Solo puede haber una de cada por consola: al subir un `.jpg` donde había un
@@ -210,6 +210,25 @@ no se piden catorce GIF al abrir el índice. Los `.mp4` y `.webm` van con
 
 En pantallas táctiles no hay hover, así que se muestra solo la imagen fija y la
 tarjeta no se agranda: `@media (hover: none)` desactiva ambos efectos.
+
+### Dos animaciones por juego
+
+Cada juego admite **dos**: la *animación 1* se ve al pasar el ratón por la
+tarjeta y la *animación 2* dentro de la ventana de detalle. Se guardan con los
+sufijos `-anim` y `-anim2`. Si falta la segunda, la ventana recurre a la
+primera, y si tampoco hay, a la imagen fija.
+
+### Editar un juego
+
+En la ventana de detalle, un administrador ve un botón **Editar** que permite
+cambiar nombre, descripción, las tres imágenes y **la propia ROM**.
+
+Reemplazar la ROM por un fichero con otro nombre cambia la identidad del juego,
+cuya clave es `<sistema>/<fichero>`. Se migran metadatos, estadísticas,
+imágenes y **las partidas de todos los usuarios**; si no, quedarían huérfanas
+apuntando a un nombre inexistente. La ROM se sube la última a propósito: si
+cambia de nombre, las rutas se mueven, y hacerlo antes dejaría las imágenes
+recién subidas en el sitio viejo. Un nombre que ya exista se rechaza con 409.
 
 ## Rendimiento
 

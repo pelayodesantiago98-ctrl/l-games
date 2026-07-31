@@ -149,6 +149,16 @@ const animacionDe = (id) => buscarMedia('consolas', id, '-anim', EXT_ANIMADA);
 const dirJuego = (systemId) => `juegos/${safeName(systemId)}`;
 const portadaJuego = (sys, rom) => buscarMedia(dirJuego(sys), romBase(rom), '', EXT_IMAGEN);
 const animacionJuego = (sys, rom) => buscarMedia(dirJuego(sys), romBase(rom), '-anim', EXT_ANIMADA);
+// Segunda animación: la que se ve dentro de la ventana de detalle, distinta de
+// la que aparece al pasar el ratón por la tarjeta.
+const animacion2Juego = (sys, rom) => buscarMedia(dirJuego(sys), romBase(rom), '-anim2', EXT_ANIMADA);
+
+// Cada tipo de fichero gráfico: qué sufijo lleva y qué extensiones admite.
+const TIPOS_MEDIA = {
+  portada:    { sufijo: '',       extensiones: EXT_IMAGEN },
+  animacion:  { sufijo: '-anim',  extensiones: EXT_ANIMADA },
+  animacion2: { sufijo: '-anim2', extensiones: EXT_ANIMADA },
+};
 
 // ─── metadatos de los juegos ─────────────────────────────────────────────────
 
@@ -864,8 +874,10 @@ function systemPage(user, system, roms, admin) {
   const tarjetaJuego = (r) => {
     const meta = metaJuego(system.id, r.name);
     const img = portadaJuego(system.id, r.name);
-    const mov = animacionJuego(system.id, r.name);
+    const mov = animacionJuego(system.id, r.name);       // al pasar el ratón
+    const mov2 = animacion2Juego(system.id, r.name);     // dentro del detalle
     const esVideo = mov && (mov.ext === '.mp4' || mov.ext === '.webm');
+    const esVideo2 = mov2 && (mov2.ext === '.mp4' || mov2.ext === '.webm');
 
     const vars = [
       img ? `--portada:url('${esc(img.url)}')` : '',
@@ -889,8 +901,11 @@ function systemPage(user, system, roms, admin) {
     return `        <a class="${clases.join(' ')}" href="/play/${esc(system.id)}/${encodeURIComponent(r.name)}"${vars ? ` style="${vars}"` : ''}
            data-nombre="${esc(meta.nombre)}"
            data-descripcion="${esc(meta.descripcion)}"
+           data-rom="${esc(r.name)}"
            data-anim="${esc(mov ? mov.url : '')}"
            data-anim-video="${esVideo ? '1' : ''}"
+           data-anim2="${esc(mov2 ? mov2.url : '')}"
+           data-anim2-video="${esVideo2 ? '1' : ''}"
            data-portada="${esc(img ? img.url : '')}"
            data-peso="${esc(humanSize(r.size))}">
           ${img ? '<span class="card-fondo" aria-hidden="true"></span>' : ''}
@@ -908,13 +923,50 @@ function systemPage(user, system, roms, admin) {
       <div class="modal-fondo"></div>
       <div id="detalle-caja" class="detalle-caja" role="dialog" aria-modal="true">
         <div id="detalle-media" class="detalle-media"></div>
-        <div class="detalle-cuerpo">
+        <div id="detalle-vista" class="detalle-cuerpo">
           <h2 id="detalle-nombre" class="detalle-nombre"></h2>
           <p id="detalle-desc" class="detalle-desc"></p>
           <p id="detalle-peso" class="detalle-peso"></p>
           <a id="detalle-jugar" class="btn btn-jugar" href="#">JUGAR</a>
-          <button id="detalle-cerrar" class="link-btn" type="button">Cerrar</button>
+          <span class="detalle-pie">
+            ${admin ? '<button id="detalle-editar" class="link-btn" type="button">Editar</button>' : ''}
+            <button id="detalle-cerrar" class="link-btn" type="button">Cerrar</button>
+          </span>
         </div>
+${admin ? `
+        <div id="detalle-edicion" class="detalle-cuerpo" hidden>
+          <h2 class="detalle-nombre">Editar juego</h2>
+          <div class="campo">
+            <label for="ed-nombre">Nombre</label>
+            <input id="ed-nombre" type="text" maxlength="120">
+          </div>
+          <div class="campo">
+            <label for="ed-desc">Descripción</label>
+            <textarea id="ed-desc" rows="2" maxlength="400"></textarea>
+          </div>
+          <div class="campo">
+            <label for="ed-img">Imagen</label>
+            <input id="ed-img" type="file" accept="${esc(EXT_IMAGEN.join(','))}">
+          </div>
+          <div class="campo">
+            <label for="ed-anim">Animación 1 <small>(al pasar el ratón)</small></label>
+            <input id="ed-anim" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
+          </div>
+          <div class="campo">
+            <label for="ed-anim2">Animación 2 <small>(en esta ventana)</small></label>
+            <input id="ed-anim2" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
+          </div>
+          <div class="campo">
+            <label for="ed-rom">Cambiar la ROM</label>
+            <input id="ed-rom" type="file" accept="${esc((system.extensions || []).join(','))}">
+            <span class="ayuda">Si el fichero se llama distinto, se moverán sus datos, imágenes y partidas al nombre nuevo.</span>
+          </div>
+          <div id="ed-progreso" class="progress" hidden><div id="ed-bar" class="bar"></div><span id="ed-txt" class="ptext"></span></div>
+          <button id="ed-guardar" class="btn" type="button">Guardar cambios</button>
+          <span class="detalle-pie">
+            <button id="ed-cancelar" class="link-btn" type="button">Cancelar</button>
+          </span>
+        </div>` : ''}
       </div>
     </div>`
     : `    <p class="empty">No hay juegos para esta consola todavía.${admin ? ' Súbelos con el botón <b>Subir juego</b>.' : ''}</p>`;
@@ -947,18 +999,22 @@ ${admin ? `
         <label for="descripcion">Descripción</label>
         <textarea id="descripcion" rows="2" maxlength="400" placeholder="Opcional"></textarea>
       </div>
+      <div class="campo">
+        <label for="j-img">Imagen</label>
+        <input id="j-img" type="file" accept="${esc(EXT_IMAGEN.join(','))}">
+      </div>
       <div class="campo-doble">
         <div class="campo">
-          <label for="j-img">Imagen</label>
-          <input id="j-img" type="file" accept="${esc(EXT_IMAGEN.join(','))}">
+          <label for="j-gif">Animación 1 <small>(al pasar el ratón)</small></label>
+          <input id="j-gif" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
         </div>
         <div class="campo">
-          <label for="j-gif">GIF o vídeo</label>
-          <input id="j-gif" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
+          <label for="j-gif2">Animación 2 <small>(en la ventana de detalle)</small></label>
+          <input id="j-gif2" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
         </div>
       </div>
       <p class="campo-nota">
-        La imagen se ve siempre; el GIF solo al pasar el ratón. Máximo 24 MB cada uno.
+        La imagen se ve siempre. Máximo 24 MB cada fichero.
         Un <code>.mp4</code> pesa mucho menos que un GIF equivalente.
       </p>
       <button id="btn-subir" class="btn" type="button">Subir</button>
@@ -1034,6 +1090,7 @@ ${lista}
           var rom  = document.getElementById('rom').files[0];
           var img  = document.getElementById('j-img').files[0];
           var gif  = document.getElementById('j-gif').files[0];
+          var gif2 = document.getElementById('j-gif2').files[0];
           var nom  = document.getElementById('nombre').value.trim();
           var desc = document.getElementById('descripcion').value.trim();
 
@@ -1065,6 +1122,11 @@ ${lista}
               bar.style.width = '0%';
               await enviar('/api/juego-media/' + encodeURIComponent(sistema) + '/' + encodeURIComponent(rom.name) +
                            '/animacion/' + encodeURIComponent(gif.name), gif, bar, txt, gif.name);
+            }
+            if (gif2) {
+              bar.style.width = '0%';
+              await enviar('/api/juego-media/' + encodeURIComponent(sistema) + '/' + encodeURIComponent(rom.name) +
+                           '/animacion2/' + encodeURIComponent(gif2.name), gif2, bar, txt, gif2.name);
             }
 
             txt.textContent = 'Listo, recargando…';
@@ -1141,6 +1203,10 @@ ${lista}
 
           function abrir(card) {
             origen = card;
+            // Siempre se abre en la vista normal, aunque se cerrara editando.
+            var v0 = document.getElementById('detalle-vista');
+            var e0 = document.getElementById('detalle-edicion');
+            if (e0) { v0.hidden = false; e0.hidden = true; }
             document.getElementById('detalle-nombre').textContent = card.dataset.nombre || '';
             var desc = document.getElementById('detalle-desc');
             desc.textContent = card.dataset.descripcion || '';
@@ -1148,16 +1214,22 @@ ${lista}
             document.getElementById('detalle-peso').textContent = card.dataset.peso || '';
             document.getElementById('detalle-jugar').href = card.getAttribute('href');
 
-            // Arriba, la animación si la hay; si no, la imagen fija. Y si el
-            // juego no tiene ninguna, se oculta la franja en vez de dejar un
-            // rectángulo negro ocupando casi la mitad de la ventana.
+            /*
+             * Aquí manda la animación 2, que es la propia de esta ventana. Si
+             * no la hay se recurre a la de la tarjeta, y en último caso a la
+             * imagen fija; si tampoco existe, se oculta la franja en vez de
+             * dejar un rectángulo negro ocupando media ventana.
+             */
             media.innerHTML = '';
             media.style.backgroundImage = '';
-            var fondo = card.dataset.anim || card.dataset.portada;
+            var fondo = card.dataset.anim2 || card.dataset.anim || card.dataset.portada;
+            var esVid = card.dataset.anim2
+              ? card.dataset.anim2Video
+              : (card.dataset.anim ? card.dataset.animVideo : '');
             media.hidden = !fondo;
-            if (card.dataset.animVideo && card.dataset.anim) {
+            if (esVid && fondo) {
               var v = document.createElement('video');
-              v.src = card.dataset.anim;
+              v.src = fondo;
               v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true;
               media.appendChild(v);
             } else if (fondo) {
@@ -1215,6 +1287,82 @@ ${lista}
           window.addEventListener('resize', function () {
             if (!modal.hidden) colocar(medidaDestino());
           });
+
+          // ── Edición del juego (solo admin) ───────────────────────────────
+          var vista   = document.getElementById('detalle-vista');
+          var edicion = document.getElementById('detalle-edicion');
+          var btnEditar = document.getElementById('detalle-editar');
+
+          if (edicion && btnEditar) {
+            var edBar = document.getElementById('ed-bar');
+            var edTxt = document.getElementById('ed-txt');
+            var edBox = document.getElementById('ed-progreso');
+
+            function verEdicion(v) {
+              vista.hidden = v;
+              edicion.hidden = !v;
+              if (v) {
+                document.getElementById('ed-nombre').value = origen.dataset.nombre || '';
+                document.getElementById('ed-desc').value = origen.dataset.descripcion || '';
+                ['ed-img', 'ed-anim', 'ed-anim2', 'ed-rom'].forEach(function (id) {
+                  document.getElementById(id).value = '';
+                });
+                edBox.hidden = true;
+                edBar.style.width = '0%';
+                edBar.style.background = '';
+              }
+            }
+
+            btnEditar.addEventListener('click', function () { verEdicion(true); });
+            document.getElementById('ed-cancelar').addEventListener('click', function () { verEdicion(false); });
+
+            document.getElementById('ed-guardar').addEventListener('click', async function () {
+              var boton = this;
+              var sis = encodeURIComponent(sistema);
+              var rom = encodeURIComponent(origen.dataset.rom);
+              var nom = document.getElementById('ed-nombre').value.trim();
+              var des = document.getElementById('ed-desc').value.trim();
+              var fImg  = document.getElementById('ed-img').files[0];
+              var fAn1  = document.getElementById('ed-anim').files[0];
+              var fAn2  = document.getElementById('ed-anim2').files[0];
+              var fRom  = document.getElementById('ed-rom').files[0];
+
+              boton.disabled = true;
+              edBox.hidden = false;
+              edBar.style.background = '';
+
+              try {
+                edTxt.textContent = 'Guardando datos…';
+                await enviar('/api/juego-meta/' + sis + '/' + rom,
+                  new Blob([JSON.stringify({ nombre: nom, descripcion: des })],
+                           { type: 'application/json' }), edBar, edTxt, 'datos');
+
+                var subidas = [[fImg, 'portada'], [fAn1, 'animacion'], [fAn2, 'animacion2']];
+                for (var i = 0; i < subidas.length; i++) {
+                  var f = subidas[i][0];
+                  if (!f) continue;
+                  edBar.style.width = '0%';
+                  await enviar('/api/juego-media/' + sis + '/' + rom + '/' + subidas[i][1] +
+                               '/' + encodeURIComponent(f.name), f, edBar, edTxt, f.name);
+                }
+
+                // La ROM va la última: si cambia de nombre, el resto de rutas
+                // se migran, y hacerlo antes dejaría las subidas en el sitio viejo.
+                if (fRom) {
+                  edBar.style.width = '0%';
+                  await enviar('/api/rom-reemplazar/' + sis + '/' + rom + '/' + encodeURIComponent(fRom.name),
+                               fRom, edBar, edTxt, fRom.name);
+                }
+
+                edTxt.textContent = 'Listo, recargando…';
+                location.reload();
+              } catch (err) {
+                edTxt.textContent = 'Error: ' + err.message;
+                edBar.style.background = 'var(--danger)';
+                boton.disabled = false;
+              }
+            });
+          }
         }
       })();
     </script>`,
@@ -1829,11 +1977,12 @@ app.put('/api/rom/:id/:rom', requireAuth, requireAdmin, async (req, res) => {
  * nombre base, así que comparten esta función.
  */
 async function recibirMedia(req, res, { subdir, base, tipo }) {
-  if (tipo !== 'portada' && tipo !== 'animacion') {
-    return res.status(400).json({ error: 'tipo debe ser portada o animacion' });
+  const spec = TIPOS_MEDIA[tipo];
+  if (!spec) {
+    return res.status(400).json({ error: `tipo debe ser uno de: ${Object.keys(TIPOS_MEDIA).join(', ')}` });
   }
 
-  const permitidas = tipo === 'portada' ? EXT_IMAGEN : EXT_ANIMADA;
+  const permitidas = spec.extensiones;
   const ext = path.extname(safeName(req.params.archivo)).toLowerCase();
   if (!permitidas.includes(ext)) {
     return res.status(400).json({ error: `${ext || 'sin extension'} no vale aqui; admitidas: ${permitidas.join(' ')}` });
@@ -1852,7 +2001,7 @@ async function recibirMedia(req, res, { subdir, base, tipo }) {
    * un .png y ahora llega un .jpg hay que retirar el viejo: si no quedarían los
    * dos y buscarMedia elegiría el primero de la lista, no el recién subido.
    */
-  const nombre = safeName(base) + (tipo === 'portada' ? '' : '-anim');
+  const nombre = safeName(base) + spec.sufijo;
   for (const e of permitidas) {
     if (e === ext) continue;
     try { await fsp.unlink(path.join(dir, nombre + e)); } catch { /* no existia */ }
@@ -1894,6 +2043,110 @@ app.put('/api/juego-media/:id/:rom/:tipo/:archivo', requireAuth, requireAdmin, a
     subdir: dirJuego(system.id),
     base: romBase(rom.name),
     tipo: req.params.tipo,
+  });
+});
+
+// ─── API: reemplazar la ROM de un juego ──────────────────────────────────────
+
+/*
+ * Si el fichero nuevo se llama distinto, el juego cambia de identidad: su clave
+ * es <sistema>/<fichero>. Hay que arrastrar metadatos, estadísticas, imágenes y
+ * las partidas de TODOS los usuarios, o quedarían huérfanas apuntando a un
+ * nombre que ya no existe.
+ */
+async function migrarJuego(systemId, viejo, nuevo) {
+  if (viejo === nuevo) return;
+  const baseViejo = romBase(viejo);
+  const baseNuevo = romBase(nuevo);
+
+  const juegos = loadJuegos();
+  const cv = claveJuego(systemId, viejo);
+  const cn = claveJuego(systemId, nuevo);
+  if (juegos[cv]) {
+    juegos[cn] = juegos[cv];
+    delete juegos[cv];
+    const tmp = `${JUEGOS_FILE}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify(juegos, null, 2) + '\n');
+    await fsp.rename(tmp, JUEGOS_FILE);
+  }
+
+  const stats = loadEstadisticas();
+  let tocado = false;
+  for (const usuario of Object.keys(stats)) {
+    if (stats[usuario][cv]) {
+      stats[usuario][cn] = stats[usuario][cv];
+      delete stats[usuario][cv];
+      tocado = true;
+    }
+  }
+  if (tocado) {
+    const tmp = `${ESTADISTICAS_FILE}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify(stats, null, 2) + '\n');
+    await fsp.rename(tmp, ESTADISTICAS_FILE);
+  }
+
+  const dirMedia = path.join(MEDIA_ROOT, dirJuego(systemId));
+  for (const spec of Object.values(TIPOS_MEDIA)) {
+    for (const ext of spec.extensiones) {
+      const origen = path.join(dirMedia, baseViejo + spec.sufijo + ext);
+      if (fs.existsSync(origen)) {
+        await fsp.rename(origen, path.join(dirMedia, baseNuevo + spec.sufijo + ext));
+      }
+    }
+  }
+
+  // Las partidas viven bajo cada usuario, así que hay que recorrerlos todos.
+  try {
+    for (const usuario of await fsp.readdir(SAVES_DIR)) {
+      const origen = path.join(SAVES_DIR, usuario, safeName(systemId), `${baseViejo}.srm`);
+      if (fs.existsSync(origen)) {
+        await fsp.rename(origen, path.join(SAVES_DIR, usuario, safeName(systemId), `${baseNuevo}.srm`));
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+}
+
+app.put('/api/rom-reemplazar/:id/:rom/:archivo', requireAuth, requireAdmin, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  const viejo = await resolveRom(system.id, req.params.rom);
+  if (!viejo) return res.status(404).json({ error: 'juego desconocido' });
+
+  const nombre = safeName(req.params.archivo);
+  const ext = path.extname(nombre).toLowerCase();
+  const permitidas = (system.extensions || []).map((e) => e.toLowerCase());
+  if (permitidas.length && !permitidas.includes(ext)) {
+    return res.status(400).json({ error: `extension ${ext} no admitida por ${system.name}` });
+  }
+  if (nombre !== viejo.name) {
+    const yaHay = await resolveRom(system.id, nombre);
+    if (yaHay) return res.status(409).json({ error: 'ya existe otro juego con ese nombre de fichero' });
+  }
+
+  const dir = path.join(ROMS_DIR, safeName(system.id));
+  const destino = path.join(dir, nombre);
+  const temporal = `${destino}.subiendo`;
+  const salida = fs.createWriteStream(temporal);
+  req.pipe(salida);
+
+  salida.on('error', async (err) => {
+    try { await fsp.unlink(temporal); } catch {}
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+
+  salida.on('finish', async () => {
+    try {
+      await fsp.rename(temporal, destino);
+      if (nombre !== viejo.name) {
+        await migrarJuego(system.id, viejo.name, nombre);
+        await fsp.unlink(viejo.path);      // la ROM antigua ya no pinta nada
+      }
+      res.json({ ok: true, name: nombre, renombrado: nombre !== viejo.name });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 });
 
