@@ -143,6 +143,19 @@ usuarios registrados con su nombre real, rol, fecha de alta y último acceso, y
 un buscador que filtra en el navegador sobre la lista ya pintada, sin ir al
 servidor por cada tecla.
 
+**Al pulsar un usuario se abre su ficha** para cambiar nombre de usuario, nombre
+real, rol y contraseña. Renombrarlo arrastra su carpeta de partidas, su foto y
+sus estadísticas, igual que si lo hiciera él desde su perfil.
+
+Dos reglas que impiden quedarse fuera:
+
+- **Nadie se quita a sí mismo el rol de administrador.** Suena inofensivo
+  habiendo otro admin, pero el efecto es inmediato: la siguiente petición ya
+  sería un 403 y habría que entrar con la otra cuenta para deshacerlo. Que lo
+  haga otro administrador.
+- **No se puede degradar al último administrador**, o el sitio quedaría sin
+  nadie capaz de gestionar roles, juegos ni imágenes.
+
 El último acceso se anota al iniciar sesión. La escritura no bloquea la
 respuesta: si fallara, el usuario entra igual y solo se pierde el dato.
 
@@ -232,7 +245,8 @@ tarjeta no se agranda: `@media (hover: none)` desactiva ambos efectos.
 Cada juego admite **dos**: la *animación 1* se ve al pasar el ratón por la
 tarjeta y la *animación 2* dentro de la ventana de detalle. Se guardan con los
 sufijos `-anim` y `-anim2`. Si falta la segunda, la ventana recurre a la
-primera, y si tampoco hay, a la imagen fija.
+**imagen fija, no a la primera**: repetir la del hover haría que ambas se
+vieran iguales, que es justo lo que se quiere evitar.
 
 ### Editar un juego
 

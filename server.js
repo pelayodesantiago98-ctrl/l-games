@@ -295,6 +295,38 @@ function nuevoHash(password) {
   return { salt, hash: hashPassword(password, salt) };
 }
 
+/*
+ * Renombrar arrastra todo lo que se indexa por nombre de usuario: la carpeta de
+ * partidas, la foto y las estadísticas. Se mueven los ficheros ANTES de tocar
+ * users.json, para que un fallo a medias deje la cuenta intacta con el nombre
+ * viejo en vez de apuntando a rutas que ya no existen.
+ */
+async function renombrarUsuario(viejo, nuevo) {
+  const saveViejo = path.join(SAVES_DIR, safeName(viejo));
+  const saveNuevo = path.join(SAVES_DIR, safeName(nuevo));
+  if (fs.existsSync(saveViejo)) await fsp.rename(saveViejo, saveNuevo);
+
+  const foto = fotoDe(viejo);
+  if (foto) {
+    await fsp.rename(
+      path.join(MEDIA_ROOT, foto.rel),
+      path.join(MEDIA_ROOT, 'perfiles', safeName(nuevo) + foto.ext)
+    );
+  }
+
+  const stats = loadEstadisticas();
+  if (stats[viejo]) {
+    stats[nuevo] = stats[viejo];
+    delete stats[viejo];
+    const tmp = `${ESTADISTICAS_FILE}.tmp`;
+    await fsp.writeFile(tmp, JSON.stringify(stats, null, 2) + '\n');
+    await fsp.rename(tmp, ESTADISTICAS_FILE);
+  }
+}
+
+const cuentaAdmins = (users) =>
+  Object.values(users).filter((u) => u.rol === 'admin').length;
+
 // ─── roles ───────────────────────────────────────────────────────────────────
 
 const esAdmin = (usuario) => (loadUsers()[usuario] || {}).rol === 'admin';
@@ -722,7 +754,8 @@ function gestionPage(user) {
       // El buscador filtra en cliente sobre este atributo, así no hay que ir al
       // servidor por cada tecla y funciona con la lista ya pintada.
       const busca = `${nombre} ${d.nombre || ''} ${d.rol || 'usuario'}`.toLowerCase();
-      return `          <tr data-busca="${esc(busca)}">
+      return `          <tr class="fila-usuario" tabindex="0" role="button" data-busca="${esc(busca)}"
+              data-usuario="${esc(nombre)}" data-nombre="${esc(d.nombre || '')}" data-rol="${esc(d.rol || 'usuario')}">
             <td><b>${esc(nombre)}</b></td>
             <td>${esc(d.nombre || '—')}</td>
             <td><span class="etiqueta-rol ${d.rol === 'admin' ? 'es-admin' : ''}">${esc(d.rol || 'usuario')}</span></td>
@@ -756,6 +789,46 @@ ${filas}
       </table>
     </div>
     <p id="sin-resultados" class="empty" hidden>Ningún usuario coincide.</p>
+    <p class="campo-nota">Pulsa un usuario para editarlo.</p>
+
+    <div id="ficha" class="modal" hidden>
+      <div class="modal-fondo"></div>
+      <div class="modal-caja modal-estrecho" role="dialog" aria-modal="true">
+        <div class="modal-cabecera">
+          <h2 id="ficha-titulo">Usuario</h2>
+          <button id="ficha-cerrar" class="link-btn" type="button">Cerrar</button>
+        </div>
+        <div class="modal-cuerpo">
+          <p id="ficha-error" class="error" hidden></p>
+          <div class="campo">
+            <label for="f-usuario">Nombre de usuario</label>
+            <input id="f-usuario" type="text" maxlength="24" autocapitalize="none">
+            <span class="ayuda">Cambiarlo mueve sus partidas, su foto y sus estadísticas.</span>
+          </div>
+          <div class="campo">
+            <label for="f-nombre">Nombre real</label>
+            <input id="f-nombre" type="text" maxlength="80">
+          </div>
+          <div class="campo">
+            <label for="f-rol">Rol</label>
+            <select id="f-rol">
+              <option value="usuario">usuario</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label for="f-clave">Contraseña nueva</label>
+            <input id="f-clave" type="password" autocomplete="new-password">
+            <span class="ayuda">Déjala vacía para no cambiarla. Mínimo 8 caracteres.</span>
+          </div>
+          <div class="campo">
+            <label for="f-clave2">Confirmar contraseña</label>
+            <input id="f-clave2" type="password" autocomplete="new-password">
+          </div>
+          <button id="ficha-guardar" class="btn" type="button">Guardar</button>
+        </div>
+      </div>
+    </div>
 
     <script>
       (function () {
@@ -771,6 +844,77 @@ ${filas}
             if (ok) visibles++;
           });
           aviso.hidden = visibles > 0;
+        });
+
+        // ── Ficha del usuario ──────────────────────────────────────────────
+        var modal  = document.getElementById('ficha');
+        var error  = document.getElementById('ficha-error');
+        var actual = null;
+
+        function mostrar(v) {
+          modal.hidden = !v;
+          document.body.style.overflow = v ? 'hidden' : '';
+        }
+
+        function abrirFicha(fila) {
+          actual = fila.dataset.usuario;
+          document.getElementById('ficha-titulo').textContent = actual;
+          document.getElementById('f-usuario').value = actual;
+          document.getElementById('f-nombre').value = fila.dataset.nombre || '';
+          document.getElementById('f-rol').value = fila.dataset.rol || 'usuario';
+          document.getElementById('f-clave').value = '';
+          document.getElementById('f-clave2').value = '';
+          error.hidden = true;
+          mostrar(true);
+        }
+
+        filas.forEach(function (f) {
+          f.addEventListener('click', function () { abrirFicha(f); });
+          f.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirFicha(f); }
+          });
+        });
+
+        document.getElementById('ficha-cerrar').addEventListener('click', function () { mostrar(false); });
+        modal.querySelector('.modal-fondo').addEventListener('click', function () { mostrar(false); });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && !modal.hidden) mostrar(false);
+        });
+
+        document.getElementById('ficha-guardar').addEventListener('click', async function () {
+          var boton = this;
+          var clave = document.getElementById('f-clave').value;
+          var clave2 = document.getElementById('f-clave2').value;
+
+          if (clave && clave !== clave2) {
+            error.textContent = 'Las dos contraseñas no coinciden.';
+            error.hidden = false;
+            return;
+          }
+
+          boton.disabled = true;
+          error.hidden = true;
+          try {
+            var res = await fetch('/api/usuario/' + encodeURIComponent(actual), {
+              method: 'PUT',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                usuario: document.getElementById('f-usuario').value.trim(),
+                nombre: document.getElementById('f-nombre').value.trim(),
+                rol: document.getElementById('f-rol').value,
+                password: clave || undefined,
+                password2: clave ? clave2 : undefined,
+              }),
+            });
+            var datos = await res.json();
+            if (!res.ok) throw new Error(datos.error || ('HTTP ' + res.status));
+            location.reload();
+          } catch (err) {
+            error.textContent = err.message;
+            error.hidden = false;
+            boton.disabled = false;
+          }
         });
       })();
     </script>`,
@@ -1299,17 +1443,16 @@ ${lista}
             document.getElementById('detalle-jugar').href = card.getAttribute('href');
 
             /*
-             * Aquí manda la animación 2, que es la propia de esta ventana. Si
-             * no la hay se recurre a la de la tarjeta, y en último caso a la
-             * imagen fija; si tampoco existe, se oculta la franja en vez de
-             * dejar un rectángulo negro ocupando media ventana.
+             * Aquí va la animación 2, la propia de esta ventana. Si no existe
+             * se recurre a la imagen fija, NO a la animación 1: repetir la del
+             * hover haría que ambas se vieran iguales, que es justo lo que se
+             * quiere evitar. Sin ninguna de las dos se oculta la franja en vez
+             * de dejar un rectángulo negro ocupando media ventana.
              */
             media.innerHTML = '';
             media.style.backgroundImage = '';
-            var fondo = card.dataset.anim2 || card.dataset.anim || card.dataset.portada;
-            var esVid = card.dataset.anim2
-              ? card.dataset.anim2Video
-              : (card.dataset.anim ? card.dataset.animVideo : '');
+            var fondo = card.dataset.anim2 || card.dataset.portada;
+            var esVid = card.dataset.anim2 ? card.dataset.anim2Video : '';
             media.hidden = !fondo;
             if (esVid && fondo) {
               var v = document.createElement('video');
@@ -1733,6 +1876,11 @@ app.disable('x-powered-by');
  */
 const formulario = express.urlencoded({ extended: false, limit: '10kb' });
 
+// Para las rutas que reciben JSON pequeño (metadatos, estadísticas, usuarios).
+// Declarado aquí y no junto a su primera ruta: las rutas se registran en orden
+// al cargar el módulo, y una const posterior aún estaría sin inicializar.
+const jsonPequeno = express.json({ limit: '2kb' });
+
 /*
  * Los cores de EmulatorJS pesan cientos de KB cada uno y no cambian nunca
  * dentro de una misma versión: un año e immutable ahorra volver a bajarlos.
@@ -1906,17 +2054,7 @@ app.post('/perfil/datos', requireAuth, formulario, async (req, res) => {
      * y sus datos intactos.
      */
     try {
-      const saveViejo = path.join(SAVES_DIR, safeName(actual));
-      const saveNuevo = path.join(SAVES_DIR, safeName(nuevo));
-      if (fs.existsSync(saveViejo)) await fsp.rename(saveViejo, saveNuevo);
-
-      const foto = fotoDe(actual);
-      if (foto) {
-        await fsp.rename(
-          path.join(MEDIA_ROOT, foto.rel),
-          path.join(MEDIA_ROOT, 'perfiles', safeName(nuevo) + foto.ext)
-        );
-      }
+      await renombrarUsuario(actual, nuevo);
     } catch (err) {
       console.error(`Renombrando ${actual} -> ${nuevo}: ${err.message}`);
       return res.status(500).type('html').send(
@@ -1969,6 +2107,82 @@ app.put('/api/foto/:archivo', requireAuth, async (req, res) => {
   await recibirMedia(req, res, { subdir: 'perfiles', base: req.user, tipo: 'portada' });
 });
 
+// ─── API: gestión de usuarios (admin) ────────────────────────────────────────
+
+app.put('/api/usuario/:nombre', requireAuth, requireAdmin, jsonPequeno, async (req, res) => {
+  const users = loadUsers();
+  const actual = req.params.nombre;
+  if (!users[actual]) return res.status(404).json({ error: 'ese usuario no existe' });
+
+  const { rol, usuario, nombre, password, password2 } = req.body || {};
+  const destino = String(usuario || actual).trim();
+  const rolNuevo = rol === 'admin' ? 'admin' : 'usuario';
+
+  const rolViejo = users[actual].rol === 'admin' ? 'admin' : 'usuario';
+
+  /*
+   * Nadie se quita a sí mismo el rol de administrador. Sonaría inofensivo con
+   * otro admin existiendo, pero el efecto es inmediato: la siguiente petición
+   * ya sería un 403 y habría que entrar con la otra cuenta para deshacerlo.
+   * Que lo haga otro administrador.
+   */
+  if (actual === req.user && rolNuevo !== rolViejo) {
+    return res.status(409).json({ error: 'no puedes cambiar tu propio rol; que lo haga otro administrador' });
+  }
+
+  /*
+   * Y si este era el último administrador, degradarle dejaría el sitio sin
+   * nadie capaz de gestionar: ni roles, ni juegos, ni imágenes.
+   */
+  if (rolViejo === 'admin' && rolNuevo !== 'admin' && cuentaAdmins(users) === 1) {
+    return res.status(409).json({ error: 'es el último administrador; asciende antes a otro' });
+  }
+
+  if (destino !== actual) {
+    if (!USUARIO_VALIDO.test(destino)) {
+      return res.status(400).json({ error: 'el usuario debe tener entre 3 y 24 caracteres: letras, números, punto, guion o guion bajo' });
+    }
+    if (Object.keys(users).some((u) => u.toLowerCase() === destino.toLowerCase())) {
+      return res.status(409).json({ error: 'ese nombre de usuario ya está cogido' });
+    }
+  }
+
+  let credenciales = null;
+  if (password) {
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: 'la contraseña debe tener al menos 8 caracteres' });
+    }
+    if (password2 !== undefined && password !== password2) {
+      return res.status(400).json({ error: 'las dos contraseñas no coinciden' });
+    }
+    credenciales = nuevoHash(String(password));
+  }
+
+  if (destino !== actual) {
+    try {
+      await renombrarUsuario(actual, destino);
+    } catch (err) {
+      console.error(`Renombrando ${actual} -> ${destino}: ${err.message}`);
+      return res.status(500).json({ error: 'no se pudieron mover sus datos; no se ha cambiado nada' });
+    }
+  }
+
+  const ficha = { ...users[actual], rol: rolNuevo };
+  if (nombre !== undefined) ficha.nombre = String(nombre).slice(0, 80).trim();
+  if (credenciales) Object.assign(ficha, credenciales);
+
+  delete users[actual];
+  users[destino] = ficha;
+  await guardarUsuarios(users);
+
+  // Si un admin se renombra a sí mismo, su cookie lleva el nombre viejo dentro
+  // y dejaría de valer en la siguiente petición.
+  const eraYo = actual === req.user;
+  if (eraYo && destino !== actual) ponerSesion(res, destino);
+
+  res.json({ ok: true, usuario: destino, rol: rolNuevo, sesionRenovada: eraYo && destino !== actual });
+});
+
 app.get('/', requireAuth, async (req, res) => {
   const systems = loadSystems();
   const counts = {};
@@ -1989,8 +2203,6 @@ app.get('/gestion', requireAuth, requireAdmin, (req, res) => {
 });
 
 // ─── API: registro de uso ────────────────────────────────────────────────────
-
-const jsonPequeno = express.json({ limit: '2kb' });
 
 app.post('/api/stats/abrir/:id/:rom', requireAuth, async (req, res) => {
   const system = findSystem(req.params.id);
