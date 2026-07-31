@@ -21,6 +21,12 @@ const SYSTEMS_FILE = path.join(CONFIG_DIR, 'systems.json');
 const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
 const ROMS_DIR = path.join(__dirname, 'roms');
 const SAVES_DIR = path.join(__dirname, 'saves');
+const MEDIA_DIR = path.join(__dirname, 'media', 'consolas');
+
+// Portada fija y animación al pasar el ratón, una de cada por consola.
+const EXT_IMAGEN = ['.jpg', '.jpeg', '.png', '.webp', '.avif'];
+const EXT_ANIMADA = ['.gif', '.webp', '.mp4', '.webm'];
+const MAX_MEDIA_BYTES = 24 * 1024 * 1024;
 
 /*
  * Versión de los estáticos a partir de la fecha del fichero. Sin esto, el CSS
@@ -97,6 +103,27 @@ async function resolveRom(systemId, romName) {
 }
 
 const romBase = (name) => name.replace(/\.[^.]+$/, '');
+
+/*
+ * Los ficheros de portada se guardan como <id>.<ext> y <id>-anim.<ext>, así que
+ * localizarlos es buscar cuál de las extensiones admitidas existe. Se devuelve
+ * también el mtime para versionar la URL y que un cambio se vea al instante
+ * pese a la caché de un año.
+ */
+function buscarMedia(systemId, sufijo, extensiones) {
+  const base = safeName(systemId) + sufijo;
+  for (const ext of extensiones) {
+    const ruta = path.join(MEDIA_DIR, base + ext);
+    try {
+      const st = fs.statSync(ruta);
+      return { archivo: base + ext, url: `/media/${base}${ext}?v=${Math.floor(st.mtimeMs)}`, ext };
+    } catch { /* siguiente extensión */ }
+  }
+  return null;
+}
+
+const portadaDe = (id) => buscarMedia(id, '', EXT_IMAGEN);
+const animacionDe = (id) => buscarMedia(id, '-anim', EXT_ANIMADA);
 
 function savePath(user, systemId, romName) {
   return path.join(
@@ -320,12 +347,39 @@ ${consolas}
 }
 
 function indexPage(user, systems, counts) {
-  const card = (s) => `        <a class="card" href="/system/${esc(s.id)}">
-          <span class="card-year">${esc(s.year || '')}</span>
-          <h2 class="card-title">${esc(s.name)}</h2>
-          <p class="card-sub">${esc(s.fullName || '')}</p>
-          <span class="card-count">${counts[s.id] || 0} ${counts[s.id] === 1 ? 'juego' : 'juegos'}</span>
+  const card = (s) => {
+    const portada = portadaDe(s.id);
+    const anim = animacionDe(s.id);
+    const esVideo = anim && (anim.ext === '.mp4' || anim.ext === '.webm');
+
+    // La animación se declara como variable CSS y solo se usa dentro de :hover,
+    // así el navegador no descarga el GIF hasta que hace falta.
+    const vars = [
+      portada ? `--portada:url('${esc(portada.url)}')` : '',
+      anim && !esVideo ? `--anim:url('${esc(anim.url)}')` : '',
+    ].filter(Boolean).join(';');
+
+    const capaAnim = esVideo
+      ? `<video class="card-anim" muted loop playsinline preload="none" aria-hidden="true">
+            <source src="${esc(anim.url)}" type="video/${anim.ext.slice(1)}">
+          </video>`
+      : (anim ? '<span class="card-anim" aria-hidden="true"></span>' : '');
+
+    const clases = ['card'];
+    if (portada) clases.push('con-portada');
+    if (anim) clases.push('con-anim');
+
+    return `        <a class="${clases.join(' ')}" href="/system/${esc(s.id)}"${vars ? ` style="${vars}"` : ''}>
+          ${portada ? '<span class="card-fondo" aria-hidden="true"></span>' : ''}
+          ${capaAnim}
+          <span class="card-texto">
+            <span class="card-year">${esc(s.year || '')}</span>
+            <h2 class="card-title">${esc(s.name)}</h2>
+            <p class="card-sub">${esc(s.fullName || '')}</p>
+            <span class="card-count">${counts[s.id] || 0} ${counts[s.id] === 1 ? 'juego' : 'juegos'}</span>
+          </span>
         </a>`;
+  };
   return layout({
     title: 'L-games',
     user,
@@ -335,11 +389,35 @@ function indexPage(user, systems, counts) {
     </div>
     <div class="grid">
 ${systems.map(card).join('\n')}
-    </div>`,
+    </div>
+
+    <script>
+      /*
+       * Los vídeos van con preload="none" para no descargarlos al cargar la
+       * página: solo empiezan cuando el ratón entra en la tarjeta. Al salir se
+       * pausan y se rebobinan, para que la próxima vez arranquen desde el
+       * principio en vez de desde donde se quedaron.
+       */
+      document.querySelectorAll('.card.con-anim').forEach(function (card) {
+        var v = card.querySelector('video.card-anim');
+        if (!v) return;
+        card.addEventListener('mouseenter', function () {
+          var p = v.play();
+          if (p && p.catch) p.catch(function () { /* el navegador puede negarse */ });
+        });
+        card.addEventListener('mouseleave', function () {
+          v.pause();
+          try { v.currentTime = 0; } catch (e) {}
+        });
+      });
+    </script>`,
   });
 }
 
 function systemPage(user, system, roms) {
+  const portada = portadaDe(system.id);
+  const anim = animacionDe(system.id);
+
   const lista = roms.length
     ? `    <ul class="rom-list">
 ${roms.map((r) => `      <li class="rom">
@@ -365,6 +443,26 @@ ${roms.map((r) => `      <li class="rom">
       <input id="up" type="file" multiple accept="${esc((system.extensions || []).join(','))}" hidden>
       <span class="upload-hint">Formatos: ${esc((system.extensions || []).join('  '))}</span>
     </div>
+
+    <details class="apariencia">
+      <summary>Apariencia de la tarjeta</summary>
+      <p class="apariencia-texto">
+        La imagen se ve siempre; la animación solo al pasar el ratón por encima.
+        ${portada ? '<b>Imagen puesta.</b>' : 'Sin imagen todavía.'}
+        ${anim ? '<b>Animación puesta.</b>' : 'Sin animación todavía.'}
+      </p>
+      <div class="apariencia-acciones">
+        <label class="btn file-btn" for="img">${portada ? 'Cambiar imagen' : 'Subir imagen'}</label>
+        <input id="img" type="file" accept="${esc(EXT_IMAGEN.join(','))}" hidden>
+        <label class="btn file-btn" for="anim">${anim ? 'Cambiar animación' : 'Subir animación'}</label>
+        <input id="anim" type="file" accept="${esc(EXT_ANIMADA.join(','))}" hidden>
+      </div>
+      <p class="apariencia-nota">
+        Imagen: ${esc(EXT_IMAGEN.join(' '))} · Animación: ${esc(EXT_ANIMADA.join(' '))} · máximo 24 MB.
+        Un <code>.mp4</code> o <code>.webm</code> pesa muchísimo menos que un GIF equivalente y se ve mejor.
+      </p>
+      <div id="prog-media" class="progress" hidden><div id="bar-media" class="bar"></div><span id="txt-media" class="ptext"></span></div>
+    </details>
     <div id="progress" class="progress" hidden><div id="bar" class="bar"></div><span id="ptext" class="ptext"></span></div>
 
 ${lista}
@@ -411,6 +509,52 @@ ${lista}
             text.textContent = 'Error: ' + err.message;
             bar.style.background = 'var(--danger)';
           }
+        });
+
+        // ── Apariencia: imagen fija y animación de la tarjeta ──────────────
+        var boxM  = document.getElementById('prog-media');
+        var barM  = document.getElementById('bar-media');
+        var txtM  = document.getElementById('txt-media');
+
+        function subirMedia(file, tipo) {
+          return new Promise(function (resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('PUT', '/api/media/' + encodeURIComponent(sistema) + '/' + tipo +
+                            '/' + encodeURIComponent(file.name));
+            xhr.upload.onprogress = function (e) {
+              if (!e.lengthComputable) return;
+              var pct = Math.round((e.loaded / e.total) * 100);
+              barM.style.width = pct + '%';
+              txtM.textContent = file.name + ' — ' + pct + '%';
+            };
+            xhr.onload = function () {
+              if (xhr.status >= 200 && xhr.status < 300) return resolve();
+              var msg = xhr.responseText;
+              try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+              reject(new Error(msg));
+            };
+            xhr.onerror = function () { reject(new Error('fallo de red')); };
+            xhr.send(file);
+          });
+        }
+
+        [['img', 'portada'], ['anim', 'animacion']].forEach(function (par) {
+          var el = document.getElementById(par[0]);
+          if (!el) return;
+          el.addEventListener('change', async function () {
+            var f = el.files && el.files[0];
+            if (!f) return;
+            boxM.hidden = false;
+            barM.style.background = '';
+            try {
+              await subirMedia(f, par[1]);
+              txtM.textContent = 'Listo, recargando…';
+              location.reload();
+            } catch (err) {
+              txtM.textContent = 'Error: ' + err.message;
+              barM.style.background = 'var(--danger)';
+            }
+          });
         });
       })();
     </script>`,
@@ -628,6 +772,13 @@ app.use('/static', express.static(path.join(__dirname, 'public'), {
   immutable: true,
 }));
 
+// Portadas y animaciones de las consolas. También versionadas por mtime.
+app.use('/media', express.static(MEDIA_DIR, {
+  maxAge: '1y',
+  immutable: true,
+  setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'same-origin'),
+}));
+
 /*
  * Todo el HTML de aquí es de un usuario concreto: listados de sus partidas,
  * su nombre en la cabecera. No debe quedarse en ninguna caché intermedia,
@@ -743,6 +894,62 @@ app.put('/api/rom/:id/:rom', requireAuth, async (req, res) => {
       await fsp.rename(temporal, destino);   // atómico: nunca queda a medias
       const stat = await fsp.stat(destino);
       res.json({ ok: true, name: nombre, size: stat.size });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+});
+
+// ─── API: apariencia de las consolas ─────────────────────────────────────────
+
+app.put('/api/media/:id/:tipo/:archivo', requireAuth, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+
+  const tipo = req.params.tipo;
+  if (tipo !== 'portada' && tipo !== 'animacion') {
+    return res.status(400).json({ error: 'tipo debe ser portada o animacion' });
+  }
+
+  const permitidas = tipo === 'portada' ? EXT_IMAGEN : EXT_ANIMADA;
+  const ext = path.extname(safeName(req.params.archivo)).toLowerCase();
+  if (!permitidas.includes(ext)) {
+    return res.status(400).json({ error: `${ext || 'sin extension'} no vale aqui; admitidas: ${permitidas.join(' ')}` });
+  }
+
+  const largo = Number(req.headers['content-length'] || 0);
+  if (largo > MAX_MEDIA_BYTES) {
+    return res.status(413).json({ error: `maximo ${Math.round(MAX_MEDIA_BYTES / 1048576)} MB` });
+  }
+
+  await fsp.mkdir(MEDIA_DIR, { recursive: true });
+
+  /*
+   * Solo puede haber una portada y una animación por consola. Si antes había
+   * un .png y ahora llega un .jpg, hay que retirar el viejo o quedarían los
+   * dos y buscarMedia elegiría el primero de la lista, no el recién subido.
+   */
+  const base = safeName(system.id) + (tipo === 'portada' ? '' : '-anim');
+  for (const e of permitidas) {
+    if (e === ext) continue;
+    try { await fsp.unlink(path.join(MEDIA_DIR, base + e)); } catch { /* no existia */ }
+  }
+
+  const destino = path.join(MEDIA_DIR, base + ext);
+  const temporal = `${destino}.subiendo`;
+  const salida = fs.createWriteStream(temporal);
+  req.pipe(salida);
+
+  salida.on('error', async (err) => {
+    try { await fsp.unlink(temporal); } catch {}
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+
+  salida.on('finish', async () => {
+    try {
+      await fsp.rename(temporal, destino);
+      const st = await fsp.stat(destino);
+      res.json({ ok: true, archivo: base + ext, bytes: st.size });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

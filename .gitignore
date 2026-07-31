@@ -17,3 +17,6 @@ config/users.json
 # ROMs y partidas: contenido del usuario, nunca al repositorio.
 roms/
 saves/
+
+# Portadas y animaciones de las consolas: contenido del usuario.
+media/

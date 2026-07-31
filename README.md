@@ -79,6 +79,29 @@ cuatro; la guía incluye la tabla de equivalencias.
   dedo. Se muestra con `(hover: none) and (pointer: coarse)`, que distingue un
   dedo de un ratón mejor que el ancho de pantalla.
 
+### Apariencia de las tarjetas
+
+Cada consola admite una **imagen fija** y una **animación** que la sustituye al
+pasar el ratón por encima, momento en que la tarjeta además se agranda. Ambas
+se suben desde la página de la consola, en *Apariencia de la tarjeta*, y se
+guardan en `media/consolas/` como `<id>.<ext>` y `<id>-anim.<ext>`.
+
+- Imagen: `.jpg .jpeg .png .webp .avif`
+- Animación: `.gif .webp .mp4 .webm`
+- Máximo 24 MB por fichero
+
+Solo puede haber una de cada por consola: al subir un `.jpg` donde había un
+`.png`, el anterior se retira. Si quedaran los dos, se elegiría el primero de
+la lista de extensiones y no el recién subido.
+
+**La animación no se descarga hasta que hace falta.** Su URL se declara en una
+variable CSS que solo se usa dentro de `:hover`, así que con catorce consolas
+no se piden catorce GIF al abrir el índice. Los `.mp4` y `.webm` van con
+`preload="none"` y arrancan por JavaScript al entrar el ratón.
+
+En pantallas táctiles no hay hover, así que se muestra solo la imagen fija y la
+tarjeta no se agranda: `@media (hover: none)` desactiva ambos efectos.
+
 ## Rendimiento
 
 - El CSS se sirve con `?v=<mtime>` y se cachea un año con `immutable`. Sin ese

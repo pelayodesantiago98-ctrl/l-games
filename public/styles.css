@@ -121,21 +121,26 @@ body {
 
 .card {
   position: relative;
+  isolation: isolate;          /* contiene el apilado de las capas de imagen */
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  min-height: 8.5rem;
   padding: 1.35rem 1.25rem 1.15rem;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   color: var(--fg);
   text-decoration: none;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
 }
 
-.card:hover {
+.card:hover,
+.card:focus-visible {
   border-color: var(--accent);
-  transform: translateY(-2px);
+  transform: scale(1.05);
+  z-index: 5;                  /* al agrandarse debe pasar por encima del resto */
+  box-shadow: 0 0.6rem 1.6rem rgba(0, 0, 0, 0.28);
 }
 
 .card:focus-visible {
@@ -143,13 +148,132 @@ body {
   outline-offset: 2px;
 }
 
+/* ── Capas de imagen ────────────────────────────────────────────────────── */
+
+.card-fondo,
+.card-anim {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+}
+
+.card-fondo {
+  z-index: 0;
+  background-image: var(--portada);
+  transition: transform 0.4s ease;
+}
+
+.card:hover .card-fondo { transform: scale(1.08); }
+
+/*
+ * La animación se declara aquí pero su background-image solo se asigna dentro
+ * de :hover: así el navegador no descarga el GIF hasta que se necesita. Con un
+ * catálogo de 14 consolas eso son megas que no se piden al cargar la página.
+ */
+.card-anim {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card:hover .card-anim,
+.card:focus-visible .card-anim {
+  opacity: 1;
+  background-image: var(--anim);
+}
+
+video.card-anim {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Degradado para que el texto se lea sobre cualquier imagen. */
+.con-portada::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.48) 45%, rgba(0, 0, 0, 0.82) 100%);
+  pointer-events: none;
+}
+
+.card-texto {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: auto;            /* el texto se apoya abajo, la imagen respira */
+}
+
+.con-portada .card-title,
+.con-portada .card-sub,
+.con-portada .card-year,
+.con-portada .card-count {
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+}
+
+/* Sin hover (táctil) no hay forma de disparar la animación: se deja la fija. */
+@media (hover: none) {
+  .card:hover { transform: none; box-shadow: none; }
+  .card:hover .card-fondo { transform: none; }
+  .card-anim { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card-fondo,
+  .card-anim { transition: none; }
+  .card:hover { transform: none; }
+  .card:hover .card-fondo { transform: none; }
+}
+
 .card-year {
   position: absolute;
   top: 0.9rem;
   right: 1rem;
+  z-index: 3;
   color: var(--muted);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Panel de apariencia en la página de la consola ─────────────────────── */
+
+.apariencia {
+  margin-bottom: 1.5rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+}
+
+.apariencia summary {
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 550;
+}
+
+.apariencia-texto {
+  margin: 0.85rem 0 0.9rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.apariencia-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.apariencia-nota {
+  margin: 0.9rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 .card-title {
