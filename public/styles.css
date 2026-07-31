@@ -241,26 +241,102 @@ video.card-anim {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Panel de apariencia en la página de la consola ─────────────────────── */
+/* ── Acciones de administración ─────────────────────────────────────────── */
 
-.apariencia {
-  margin-bottom: 1.5rem;
-  padding: 0.9rem 1.1rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
+.acciones-esquina {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;           /* empuja los botones a la esquina derecha */
 }
 
-.apariencia summary {
+.btn-esquina {
+  padding: 0.35rem 0.85rem;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 550;
   cursor: pointer;
-  font-size: 0.92rem;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.btn-esquina:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.btn-esquina.activo {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+
+.panel {
+  margin-bottom: 1.75rem;
+  padding: 1.25rem 1.35rem 1.4rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+}
+
+.panel-titulo {
+  margin: 0 0 1.1rem;
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.campo {
+  margin-bottom: 1rem;
+}
+
+.campo label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.83rem;
   font-weight: 550;
 }
 
-.apariencia-texto {
-  margin: 0.85rem 0 0.9rem;
+.campo input[type="text"],
+.campo textarea {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  font: inherit;
+  font-size: 1rem;             /* 16px: evita el zoom automático de iOS */
+  resize: vertical;
+}
+
+.campo input[type="file"] {
+  width: 100%;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.85rem;
+}
+
+.campo input:focus,
+.campo textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.campo-doble {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.campo-nota {
+  margin: 0.35rem 0 1rem;
+  color: var(--muted);
+  font-size: 0.79rem;
+  line-height: 1.55;
 }
 
 .apariencia-acciones {
@@ -269,11 +345,10 @@ video.card-anim {
   gap: 0.7rem;
 }
 
-.apariencia-nota {
-  margin: 0.9rem 0 0;
-  color: var(--muted);
-  font-size: 0.8rem;
-  line-height: 1.5;
+@media (max-width: 34rem) {
+  .campo-doble { grid-template-columns: 1fr; gap: 0; }
+  .play-head { flex-wrap: wrap; }
+  .acciones-esquina { margin-left: 0; width: 100%; }
 }
 
 .card-title {

@@ -79,9 +79,44 @@ cuatro; la guía incluye la tabla de equivalencias.
   dedo. Se muestra con `(hover: none) and (pointer: coarse)`, que distingue un
   dedo de un ratón mejor que el ancho de pantalla.
 
+## Roles
+
+Cada usuario tiene un `rol` en `config/users.json`: `usuario` (por defecto) o
+`admin`. Se asigna al crearlo:
+
+```bash
+node adduser.js <usuario> <contraseña> admin
+```
+
+Al cambiar una contraseña sin indicar rol se conserva el que tuviera.
+
+**Solo los administradores** pueden subir juegos y cambiar imágenes. El resto
+entra, navega y juega con normalidad, con sus propias partidas guardadas.
+
+La restricción está en las dos capas: la interfaz no dibuja los botones, y
+cada endpoint que modifica algo pasa por `requireAdmin` y responde 403. Ocultar
+el botón no basta: cualquiera podría llamar a la API directamente.
+
+## Gestión desde la web
+
+En la página de cada consola, un administrador ve dos botones en la esquina:
+
+- **Subir juego** despliega un formulario con la ROM, nombre, descripción,
+  imagen y GIF. Todo se envía en una operación, empezando por la ROM: los
+  metadatos y las imágenes cuelgan de ella y el servidor los rechaza con
+  *"sube antes la ROM"* si todavía no existe.
+- **Editar** cambia la imagen y la animación de la propia consola, que es la
+  tarjeta que se ve en el índice.
+
+Abrir un panel cierra el otro.
+
+Los metadatos de los juegos viven en `config/juegos.json`, indexados por
+`<sistema>/<fichero>`. Si un juego no tiene nombre puesto, se usa el del
+fichero sin extensión.
+
 ### Apariencia de las tarjetas
 
-Cada consola admite una **imagen fija** y una **animación** que la sustituye al
+Tanto las consolas como los juegos admiten una **imagen fija** y una **animación** que la sustituye al
 pasar el ratón por encima, momento en que la tarjeta además se agranda. Ambas
 se suben desde la página de la consola, en *Apariencia de la tarjeta*, y se
 guardan en `media/consolas/` como `<id>.<ext>` y `<id>-anim.<ext>`.

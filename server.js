@@ -21,9 +21,10 @@ const SYSTEMS_FILE = path.join(CONFIG_DIR, 'systems.json');
 const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
 const ROMS_DIR = path.join(__dirname, 'roms');
 const SAVES_DIR = path.join(__dirname, 'saves');
-const MEDIA_DIR = path.join(__dirname, 'media', 'consolas');
+const MEDIA_ROOT = path.join(__dirname, 'media');
+const JUEGOS_FILE = path.join(CONFIG_DIR, 'juegos.json');
 
-// Portada fija y animación al pasar el ratón, una de cada por consola.
+// Portada fija y animación al pasar el ratón, una de cada por consola y juego.
 const EXT_IMAGEN = ['.jpg', '.jpeg', '.png', '.webp', '.avif'];
 const EXT_ANIMADA = ['.gif', '.webp', '.mp4', '.webm'];
 const MAX_MEDIA_BYTES = 24 * 1024 * 1024;
@@ -105,25 +106,66 @@ async function resolveRom(systemId, romName) {
 const romBase = (name) => name.replace(/\.[^.]+$/, '');
 
 /*
- * Los ficheros de portada se guardan como <id>.<ext> y <id>-anim.<ext>, así que
- * localizarlos es buscar cuál de las extensiones admitidas existe. Se devuelve
- * también el mtime para versionar la URL y que un cambio se vea al instante
- * pese a la caché de un año.
+ * Los ficheros se guardan como <base>.<ext> y <base>-anim.<ext>, así que
+ * localizarlos es probar qué extensión admitida existe. Se devuelve el mtime
+ * para versionar la URL: sin eso un cambio de imagen no se vería, porque se
+ * sirven con caché de un año.
  */
-function buscarMedia(systemId, sufijo, extensiones) {
-  const base = safeName(systemId) + sufijo;
+function buscarMedia(subdir, base, sufijo, extensiones) {
+  const nombre = safeName(base) + sufijo;
   for (const ext of extensiones) {
-    const ruta = path.join(MEDIA_DIR, base + ext);
+    const rel = subdir ? `${subdir}/${nombre}${ext}` : `${nombre}${ext}`;
     try {
-      const st = fs.statSync(ruta);
-      return { archivo: base + ext, url: `/media/${base}${ext}?v=${Math.floor(st.mtimeMs)}`, ext };
+      const st = fs.statSync(path.join(MEDIA_ROOT, rel));
+      return { archivo: nombre + ext, rel, ext, url: `/media/${rel}?v=${Math.floor(st.mtimeMs)}` };
     } catch { /* siguiente extensión */ }
   }
   return null;
 }
 
-const portadaDe = (id) => buscarMedia(id, '', EXT_IMAGEN);
-const animacionDe = (id) => buscarMedia(id, '-anim', EXT_ANIMADA);
+const portadaDe = (id) => buscarMedia('consolas', id, '', EXT_IMAGEN);
+const animacionDe = (id) => buscarMedia('consolas', id, '-anim', EXT_ANIMADA);
+
+const dirJuego = (systemId) => `juegos/${safeName(systemId)}`;
+const portadaJuego = (sys, rom) => buscarMedia(dirJuego(sys), romBase(rom), '', EXT_IMAGEN);
+const animacionJuego = (sys, rom) => buscarMedia(dirJuego(sys), romBase(rom), '-anim', EXT_ANIMADA);
+
+// ─── metadatos de los juegos ─────────────────────────────────────────────────
+
+const loadJuegos = () => readJson(JUEGOS_FILE, {});
+const claveJuego = (systemId, rom) => `${safeName(systemId)}/${safeName(rom)}`;
+
+function metaJuego(systemId, rom) {
+  const m = loadJuegos()[claveJuego(systemId, rom)] || {};
+  return { nombre: m.nombre || romBase(rom), descripcion: m.descripcion || '' };
+}
+
+async function guardarMetaJuego(systemId, rom, datos) {
+  const todos = loadJuegos();
+  const clave = claveJuego(systemId, rom);
+  const actual = todos[clave] || {};
+  if (datos.nombre !== undefined) actual.nombre = String(datos.nombre).slice(0, 120).trim();
+  if (datos.descripcion !== undefined) actual.descripcion = String(datos.descripcion).slice(0, 400).trim();
+  todos[clave] = actual;
+  await fsp.mkdir(CONFIG_DIR, { recursive: true });
+  const temporal = `${JUEGOS_FILE}.tmp`;
+  await fsp.writeFile(temporal, JSON.stringify(todos, null, 2) + '\n');
+  await fsp.rename(temporal, JUEGOS_FILE);
+}
+
+// ─── roles ───────────────────────────────────────────────────────────────────
+
+const esAdmin = (usuario) => (loadUsers()[usuario] || {}).rol === 'admin';
+
+function requireAdmin(req, res, next) {
+  if (!esAdmin(req.user)) {
+    if (req.path.startsWith('/api/')) {
+      return res.status(403).json({ error: 'hace falta ser administrador' });
+    }
+    return res.redirect('/');
+  }
+  next();
+}
 
 function savePath(user, systemId, romName) {
   return path.join(
@@ -372,8 +414,8 @@ function indexPage(user, systems, counts) {
     return `        <a class="${clases.join(' ')}" href="/system/${esc(s.id)}"${vars ? ` style="${vars}"` : ''}>
           ${portada ? '<span class="card-fondo" aria-hidden="true"></span>' : ''}
           ${capaAnim}
+          <span class="card-year">${esc(s.year || '')}</span>
           <span class="card-texto">
-            <span class="card-year">${esc(s.year || '')}</span>
             <h2 class="card-title">${esc(s.name)}</h2>
             <p class="card-sub">${esc(s.fullName || '')}</p>
             <span class="card-count">${counts[s.id] || 0} ${counts[s.id] === 1 ? 'juego' : 'juegos'}</span>
@@ -414,20 +456,47 @@ ${systems.map(card).join('\n')}
   });
 }
 
-function systemPage(user, system, roms) {
+function systemPage(user, system, roms, admin) {
   const portada = portadaDe(system.id);
   const anim = animacionDe(system.id);
 
+  // Mismo tratamiento que las tarjetas de consola: imagen fija, animación en
+  // hover y carga diferida de esta última.
+  const tarjetaJuego = (r) => {
+    const meta = metaJuego(system.id, r.name);
+    const img = portadaJuego(system.id, r.name);
+    const mov = animacionJuego(system.id, r.name);
+    const esVideo = mov && (mov.ext === '.mp4' || mov.ext === '.webm');
+
+    const vars = [
+      img ? `--portada:url('${esc(img.url)}')` : '',
+      mov && !esVideo ? `--anim:url('${esc(mov.url)}')` : '',
+    ].filter(Boolean).join(';');
+
+    const capaAnim = esVideo
+      ? `<video class="card-anim" muted loop playsinline preload="none" aria-hidden="true">
+            <source src="${esc(mov.url)}" type="video/${mov.ext.slice(1)}">
+          </video>`
+      : (mov ? '<span class="card-anim" aria-hidden="true"></span>' : '');
+
+    const clases = ['card'];
+    if (img) clases.push('con-portada');
+    if (mov) clases.push('con-anim');
+
+    return `        <a class="${clases.join(' ')}" href="/play/${esc(system.id)}/${encodeURIComponent(r.name)}"${vars ? ` style="${vars}"` : ''}>
+          ${img ? '<span class="card-fondo" aria-hidden="true"></span>' : ''}
+          ${capaAnim}
+          <span class="card-year">${esc(humanSize(r.size))}</span>
+          <span class="card-texto">
+            <h2 class="card-title">${esc(meta.nombre)}</h2>
+            ${meta.descripcion ? `<p class="card-sub">${esc(meta.descripcion)}</p>` : ''}
+          </span>
+        </a>`;
+  };
+
   const lista = roms.length
-    ? `    <ul class="rom-list">
-${roms.map((r) => `      <li class="rom">
-        <a class="rom-link" href="/play/${esc(system.id)}/${encodeURIComponent(r.name)}">
-          <span class="rom-name">${esc(romBase(r.name))}</span>
-          <span class="rom-size">${esc(humanSize(r.size))}</span>
-        </a>
-      </li>`).join('\n')}
-    </ul>`
-    : `    <p class="empty">No hay juegos para esta consola todavía. Sube uno con el botón de arriba.</p>`;
+    ? `    <div class="grid">\n${roms.map(tarjetaJuego).join('\n')}\n    </div>`
+    : `    <p class="empty">No hay juegos para esta consola todavía.${admin ? ' Súbelos con el botón <b>Subir juego</b>.' : ''}</p>`;
 
   return layout({
     title: `${system.name} — L-games`,
@@ -435,19 +504,51 @@ ${roms.map((r) => `      <li class="rom">
     body: `    <div class="play-head">
       <a class="back" href="/">← Consolas</a>
       <h1 class="play-title">${esc(system.name)}</h1>
+      ${admin ? `<span class="acciones-esquina">
+        <button class="btn-esquina" type="button" data-panel="panel-subir">Subir juego</button>
+        <button class="btn-esquina" type="button" data-panel="panel-editar">Editar</button>
+      </span>` : ''}
     </div>
     ${system.note ? `<p class="sys-note">${esc(system.note)}</p>` : ''}
+${admin ? `
+    <section id="panel-subir" class="panel" hidden>
+      <h2 class="panel-titulo">Subir juego</h2>
+      <div class="campo">
+        <label for="rom">Fichero de la ROM</label>
+        <input id="rom" type="file" accept="${esc((system.extensions || []).join(','))}">
+        <span class="campo-nota">${esc((system.extensions || []).join('  '))}</span>
+      </div>
+      <div class="campo">
+        <label for="nombre">Nombre</label>
+        <input id="nombre" type="text" maxlength="120" placeholder="Si lo dejas vacío se usa el del fichero">
+      </div>
+      <div class="campo">
+        <label for="descripcion">Descripción</label>
+        <textarea id="descripcion" rows="2" maxlength="400" placeholder="Opcional"></textarea>
+      </div>
+      <div class="campo-doble">
+        <div class="campo">
+          <label for="j-img">Imagen</label>
+          <input id="j-img" type="file" accept="${esc(EXT_IMAGEN.join(','))}">
+        </div>
+        <div class="campo">
+          <label for="j-gif">GIF o vídeo</label>
+          <input id="j-gif" type="file" accept="${esc(EXT_ANIMADA.join(','))}">
+        </div>
+      </div>
+      <p class="campo-nota">
+        La imagen se ve siempre; el GIF solo al pasar el ratón. Máximo 24 MB cada uno.
+        Un <code>.mp4</code> pesa mucho menos que un GIF equivalente.
+      </p>
+      <button id="btn-subir" class="btn" type="button">Subir</button>
+      <div id="progress" class="progress" hidden><div id="bar" class="bar"></div><span id="ptext" class="ptext"></span></div>
+    </section>
 
-    <div class="upload-bar">
-      <label class="btn file-btn" for="up">Subir juego</label>
-      <input id="up" type="file" multiple accept="${esc((system.extensions || []).join(','))}" hidden>
-      <span class="upload-hint">Formatos: ${esc((system.extensions || []).join('  '))}</span>
-    </div>
-
-    <details class="apariencia">
-      <summary>Apariencia de la tarjeta</summary>
-      <p class="apariencia-texto">
-        La imagen se ve siempre; la animación solo al pasar el ratón por encima.
+    <section id="panel-editar" class="panel" hidden>
+      <h2 class="panel-titulo">Apariencia de ${esc(system.name)}</h2>
+      <p class="campo-nota">
+        Es la tarjeta de esta consola en el índice. La imagen se ve siempre; la
+        animación solo al pasar el ratón.
         ${portada ? '<b>Imagen puesta.</b>' : 'Sin imagen todavía.'}
         ${anim ? '<b>Animación puesta.</b>' : 'Sin animación todavía.'}
       </p>
@@ -457,75 +558,39 @@ ${roms.map((r) => `      <li class="rom">
         <label class="btn file-btn" for="anim">${anim ? 'Cambiar animación' : 'Subir animación'}</label>
         <input id="anim" type="file" accept="${esc(EXT_ANIMADA.join(','))}" hidden>
       </div>
-      <p class="apariencia-nota">
-        Imagen: ${esc(EXT_IMAGEN.join(' '))} · Animación: ${esc(EXT_ANIMADA.join(' '))} · máximo 24 MB.
-        Un <code>.mp4</code> o <code>.webm</code> pesa muchísimo menos que un GIF equivalente y se ve mejor.
-      </p>
       <div id="prog-media" class="progress" hidden><div id="bar-media" class="bar"></div><span id="txt-media" class="ptext"></span></div>
-    </details>
-    <div id="progress" class="progress" hidden><div id="bar" class="bar"></div><span id="ptext" class="ptext"></span></div>
+    </section>` : ''}
 
 ${lista}
 
     <script>
       (function () {
-        var input = document.getElementById('up');
-        var box   = document.getElementById('progress');
-        var bar   = document.getElementById('bar');
-        var text  = document.getElementById('ptext');
         var sistema = ${JSON.stringify(system.id)};
 
-        function subir(file) {
+        // ── Paneles: un botón de esquina abre el suyo y cierra el otro ─────
+        document.querySelectorAll('.btn-esquina').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var destino = document.getElementById(b.dataset.panel);
+            var abrir = destino.hidden;
+            document.querySelectorAll('.panel').forEach(function (p) { p.hidden = true; });
+            document.querySelectorAll('.btn-esquina').forEach(function (o) { o.classList.remove('activo'); });
+            destino.hidden = !abrir;
+            b.classList.toggle('activo', abrir);
+            if (abrir) destino.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          });
+        });
+
+        // Envío genérico con barra de progreso; devuelve el error del servidor
+        // en claro cuando lo hay, en vez de un "HTTP 400" pelado.
+        function enviar(url, cuerpo, bar, txt, etiqueta) {
           return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
-            xhr.open('PUT', '/api/rom/' + encodeURIComponent(sistema) + '/' + encodeURIComponent(file.name));
+            xhr.open('PUT', url);
             xhr.upload.onprogress = function (e) {
               if (!e.lengthComputable) return;
               var pct = Math.round((e.loaded / e.total) * 100);
               bar.style.width = pct + '%';
-              text.textContent = file.name + ' — ' + pct + '%';
-            };
-            xhr.onload = function () {
-              if (xhr.status >= 200 && xhr.status < 300) resolve();
-              else reject(new Error(xhr.responseText || ('HTTP ' + xhr.status)));
-            };
-            xhr.onerror = function () { reject(new Error('fallo de red')); };
-            xhr.send(file);
-          });
-        }
-
-        input.addEventListener('change', async function () {
-          var files = Array.prototype.slice.call(input.files || []);
-          if (!files.length) return;
-          box.hidden = false;
-          try {
-            for (var i = 0; i < files.length; i++) {
-              bar.style.width = '0%';
-              await subir(files[i]);
-            }
-            text.textContent = 'Listo, recargando…';
-            location.reload();
-          } catch (err) {
-            text.textContent = 'Error: ' + err.message;
-            bar.style.background = 'var(--danger)';
-          }
-        });
-
-        // ── Apariencia: imagen fija y animación de la tarjeta ──────────────
-        var boxM  = document.getElementById('prog-media');
-        var barM  = document.getElementById('bar-media');
-        var txtM  = document.getElementById('txt-media');
-
-        function subirMedia(file, tipo) {
-          return new Promise(function (resolve, reject) {
-            var xhr = new XMLHttpRequest();
-            xhr.open('PUT', '/api/media/' + encodeURIComponent(sistema) + '/' + tipo +
-                            '/' + encodeURIComponent(file.name));
-            xhr.upload.onprogress = function (e) {
-              if (!e.lengthComputable) return;
-              var pct = Math.round((e.loaded / e.total) * 100);
-              barM.style.width = pct + '%';
-              txtM.textContent = file.name + ' — ' + pct + '%';
+              txt.textContent = etiqueta + ' — ' + pct + '%';
             };
             xhr.onload = function () {
               if (xhr.status >= 200 && xhr.status < 300) return resolve();
@@ -534,9 +599,66 @@ ${lista}
               reject(new Error(msg));
             };
             xhr.onerror = function () { reject(new Error('fallo de red')); };
-            xhr.send(file);
+            xhr.send(cuerpo);
           });
         }
+
+        // ── Subir juego: ROM, metadatos e imágenes en una sola operación ───
+        var btn  = document.getElementById('btn-subir');
+        var box  = document.getElementById('progress');
+        var bar  = document.getElementById('bar');
+        var txt  = document.getElementById('ptext');
+
+        if (btn) btn.addEventListener('click', async function () {
+          var rom  = document.getElementById('rom').files[0];
+          var img  = document.getElementById('j-img').files[0];
+          var gif  = document.getElementById('j-gif').files[0];
+          var nom  = document.getElementById('nombre').value.trim();
+          var desc = document.getElementById('descripcion').value.trim();
+
+          if (!rom) { alert('Elige el fichero de la ROM.'); return; }
+
+          box.hidden = false;
+          bar.style.background = '';
+          btn.disabled = true;
+
+          try {
+            // La ROM primero: los metadatos y las imágenes cuelgan de ella y el
+            // servidor los rechaza si el juego todavía no existe.
+            bar.style.width = '0%';
+            await enviar('/api/rom/' + encodeURIComponent(sistema) + '/' + encodeURIComponent(rom.name),
+                         rom, bar, txt, rom.name);
+
+            if (nom || desc) {
+              txt.textContent = 'Guardando nombre y descripción…';
+              await enviar('/api/juego-meta/' + encodeURIComponent(sistema) + '/' + encodeURIComponent(rom.name),
+                           new Blob([JSON.stringify({ nombre: nom, descripcion: desc })],
+                                    { type: 'application/json' }), bar, txt, 'datos');
+            }
+            if (img) {
+              bar.style.width = '0%';
+              await enviar('/api/juego-media/' + encodeURIComponent(sistema) + '/' + encodeURIComponent(rom.name) +
+                           '/portada/' + encodeURIComponent(img.name), img, bar, txt, img.name);
+            }
+            if (gif) {
+              bar.style.width = '0%';
+              await enviar('/api/juego-media/' + encodeURIComponent(sistema) + '/' + encodeURIComponent(rom.name) +
+                           '/animacion/' + encodeURIComponent(gif.name), gif, bar, txt, gif.name);
+            }
+
+            txt.textContent = 'Listo, recargando…';
+            location.reload();
+          } catch (err) {
+            txt.textContent = 'Error: ' + err.message;
+            bar.style.background = 'var(--danger)';
+            btn.disabled = false;
+          }
+        });
+
+        // ── Apariencia de la consola ───────────────────────────────────────
+        var boxM = document.getElementById('prog-media');
+        var barM = document.getElementById('bar-media');
+        var txtM = document.getElementById('txt-media');
 
         [['img', 'portada'], ['anim', 'animacion']].forEach(function (par) {
           var el = document.getElementById(par[0]);
@@ -547,13 +669,28 @@ ${lista}
             boxM.hidden = false;
             barM.style.background = '';
             try {
-              await subirMedia(f, par[1]);
+              await enviar('/api/media/' + encodeURIComponent(sistema) + '/' + par[1] +
+                           '/' + encodeURIComponent(f.name), f, barM, txtM, f.name);
               txtM.textContent = 'Listo, recargando…';
               location.reload();
             } catch (err) {
               txtM.textContent = 'Error: ' + err.message;
               barM.style.background = 'var(--danger)';
             }
+          });
+        });
+
+        // Vídeos de las tarjetas de juego: arrancan al entrar el ratón.
+        document.querySelectorAll('.card.con-anim').forEach(function (card) {
+          var v = card.querySelector('video.card-anim');
+          if (!v) return;
+          card.addEventListener('mouseenter', function () {
+            var p = v.play();
+            if (p && p.catch) p.catch(function () {});
+          });
+          card.addEventListener('mouseleave', function () {
+            v.pause();
+            try { v.currentTime = 0; } catch (e) {}
           });
         });
       })();
@@ -772,8 +909,8 @@ app.use('/static', express.static(path.join(__dirname, 'public'), {
   immutable: true,
 }));
 
-// Portadas y animaciones de las consolas. También versionadas por mtime.
-app.use('/media', express.static(MEDIA_DIR, {
+// Portadas y animaciones de consolas y juegos. También versionadas por mtime.
+app.use('/media', express.static(MEDIA_ROOT, {
   maxAge: '1y',
   immutable: true,
   setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'same-origin'),
@@ -837,7 +974,9 @@ app.get('/controles', requireAuth, (req, res) => {
 app.get('/system/:id', requireAuth, async (req, res) => {
   const system = findSystem(req.params.id);
   if (!system) return res.redirect('/');
-  res.type('html').send(systemPage(req.user, system, await listRoms(system.id)));
+  res.type('html').send(
+    systemPage(req.user, system, await listRoms(system.id), esAdmin(req.user))
+  );
 });
 
 app.get('/play/:id/:rom', requireAuth, async (req, res) => {
@@ -861,7 +1000,7 @@ app.get('/api/rom/:id/:rom', requireAuth, async (req, res) => {
 });
 
 // Subida por streaming: el cuerpo va directo a disco, sin pasar por memoria.
-app.put('/api/rom/:id/:rom', requireAuth, async (req, res) => {
+app.put('/api/rom/:id/:rom', requireAuth, requireAdmin, async (req, res) => {
   const system = findSystem(req.params.id);
   if (!system) return res.status(404).json({ error: 'sistema desconocido' });
 
@@ -900,13 +1039,13 @@ app.put('/api/rom/:id/:rom', requireAuth, async (req, res) => {
   });
 });
 
-// ─── API: apariencia de las consolas ─────────────────────────────────────────
+// ─── API: apariencia de consolas y juegos ────────────────────────────────────
 
-app.put('/api/media/:id/:tipo/:archivo', requireAuth, async (req, res) => {
-  const system = findSystem(req.params.id);
-  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
-
-  const tipo = req.params.tipo;
+/*
+ * Consolas y juegos guardan su imagen igual, solo cambia el directorio y el
+ * nombre base, así que comparten esta función.
+ */
+async function recibirMedia(req, res, { subdir, base, tipo }) {
   if (tipo !== 'portada' && tipo !== 'animacion') {
     return res.status(400).json({ error: 'tipo debe ser portada o animacion' });
   }
@@ -922,20 +1061,21 @@ app.put('/api/media/:id/:tipo/:archivo', requireAuth, async (req, res) => {
     return res.status(413).json({ error: `maximo ${Math.round(MAX_MEDIA_BYTES / 1048576)} MB` });
   }
 
-  await fsp.mkdir(MEDIA_DIR, { recursive: true });
+  const dir = path.join(MEDIA_ROOT, subdir);
+  await fsp.mkdir(dir, { recursive: true });
 
   /*
-   * Solo puede haber una portada y una animación por consola. Si antes había
-   * un .png y ahora llega un .jpg, hay que retirar el viejo o quedarían los
+   * Solo puede haber una portada y una animación de cada cosa. Si antes había
+   * un .png y ahora llega un .jpg hay que retirar el viejo: si no quedarían los
    * dos y buscarMedia elegiría el primero de la lista, no el recién subido.
    */
-  const base = safeName(system.id) + (tipo === 'portada' ? '' : '-anim');
+  const nombre = safeName(base) + (tipo === 'portada' ? '' : '-anim');
   for (const e of permitidas) {
     if (e === ext) continue;
-    try { await fsp.unlink(path.join(MEDIA_DIR, base + e)); } catch { /* no existia */ }
+    try { await fsp.unlink(path.join(dir, nombre + e)); } catch { /* no existia */ }
   }
 
-  const destino = path.join(MEDIA_DIR, base + ext);
+  const destino = path.join(dir, nombre + ext);
   const temporal = `${destino}.subiendo`;
   const salida = fs.createWriteStream(temporal);
   req.pipe(salida);
@@ -949,12 +1089,48 @@ app.put('/api/media/:id/:tipo/:archivo', requireAuth, async (req, res) => {
     try {
       await fsp.rename(temporal, destino);
       const st = await fsp.stat(destino);
-      res.json({ ok: true, archivo: base + ext, bytes: st.size });
+      res.json({ ok: true, archivo: nombre + ext, bytes: st.size });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
+}
+
+app.put('/api/media/:id/:tipo/:archivo', requireAuth, requireAdmin, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  await recibirMedia(req, res, { subdir: 'consolas', base: system.id, tipo: req.params.tipo });
 });
+
+app.put('/api/juego-media/:id/:rom/:tipo/:archivo', requireAuth, requireAdmin, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).json({ error: 'sube antes la ROM' });
+  await recibirMedia(req, res, {
+    subdir: dirJuego(system.id),
+    base: romBase(rom.name),
+    tipo: req.params.tipo,
+  });
+});
+
+// ─── API: nombre y descripción de un juego ───────────────────────────────────
+
+app.put('/api/juego-meta/:id/:rom',
+  requireAuth,
+  requireAdmin,
+  express.json({ limit: '8kb' }),
+  async (req, res) => {
+    const system = findSystem(req.params.id);
+    if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+    const rom = await resolveRom(system.id, req.params.rom);
+    if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+
+    const { nombre, descripcion } = req.body || {};
+    await guardarMetaJuego(system.id, rom.name, { nombre, descripcion });
+    res.json({ ok: true, ...metaJuego(system.id, rom.name) });
+  }
+);
 
 // ─── API: partidas guardadas ─────────────────────────────────────────────────
 

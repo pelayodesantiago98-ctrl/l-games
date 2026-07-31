@@ -14,12 +14,14 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const [, , username, password] = process.argv;
+const [, , username, password, rolArg] = process.argv;
 
 if (!username || !password) {
-  console.error('Uso: node adduser.js <usuario> <contraseña>');
+  console.error('Uso: node adduser.js <usuario> <contraseña> [admin]');
   process.exit(1);
 }
+
+const rol = rolArg === 'admin' ? 'admin' : 'usuario';
 
 if (password.length < 8) {
   console.error('La contraseña debe tener al menos 8 caracteres.');
@@ -44,6 +46,8 @@ const salt = crypto.randomBytes(16).toString('hex');
 users[username] = {
   salt,
   hash: crypto.scryptSync(password, salt, 64).toString('hex'),
+  // Al cambiar una contraseña se conserva el rol salvo que se indique otro.
+  rol: rolArg ? rol : (existia ? users[username].rol || 'usuario' : rol),
   creado: existia ? users[username].creado : new Date().toISOString(),
 };
 
@@ -51,4 +55,5 @@ fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(users, null, 2) + '\n', { mode: 0o640 });
 
 console.log(existia ? `Contraseña actualizada para "${username}".` : `Usuario "${username}" creado.`);
+console.log(`Rol: ${users[username].rol}`);
 console.log(`Usuarios en total: ${Object.keys(users).length}`);
