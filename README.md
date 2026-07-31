@@ -16,22 +16,73 @@ escribe a un temporal y se renombra al terminar, de modo que una subida cortada
 nunca deja un fichero a medias.
 
 **Las ROMs son compartidas entre usuarios; las partidas no.** Cada usuario tiene
-las suyas en `saves/<usuario>/<sistema>/<juego>.srm`.
+las suyas en `saves/<usuario>/<sistema>/`:
+
+```
+<juego>.srm                     memoria de partida del propio juego
+<juego>.srm.bak                 version anterior, por si algo la pisa
+estados/<juego>.<n>.state       estado guardado de la ranura n (1-9)
+estados/<juego>.<n>.png         captura de esa ranura
+```
+
+Son dos cosas distintas y ambas viven en el servidor: **el guardado del propio
+juego** —la SRAM, lo que graba Pokémon al pasar por un centro— y **los estados**,
+que son una foto exacta de la consola en un instante.
 
 ### Cómo se guardan las partidas
 
-La SRAM se sincroniza con el servidor en tres momentos: cada 30 segundos, al
-ocultarse la pestaña y al cerrarla. Se calcula una huella barata del contenido
-para no subir nada si la partida no ha cambiado.
+La SRAM se sincroniza con el servidor cada 30 segundos, al ocultarse la pestaña y
+al cerrarla. Se calcula una huella barata del contenido para no subir nada si la
+partida no ha cambiado. Al cerrar la pestaña se usa `navigator.sendBeacon`, que
+sobrevive a la página; como solo sabe hacer `POST`, la ruta de guardado acepta
+`PUT` y `POST` con el mismo handler.
 
-Al arrancar un juego se recupera la partida del servidor y se inyecta en el
-emulador:
+**El momento de restaurar es lo único que importa aquí.** El core lee la memoria
+de partida al cargar la ROM y no vuelve a mirarla, así que inyectarla con el juego
+ya arrancado llega tarde: el juego dice que no hay partida. La página descarga la
+SRAM del servidor **antes** de cargar `loader.js` y la escribe en el disco virtual
+en cuanto está montado, aprovechando el evento `saveDatabaseLoaded`, que
+EmulatorJS emite después de montar `/data/saves` y antes de descargar la ROM.
 
-```js
-gameManager.saveSaveFiles();                              // asegura la ruta
-gameManager.FS.writeFile(gameManager.getSaveFilePath(), datos);
-gameManager.loadSaveFiles();
-```
+Con el juego en marcha se repasa el resultado, que es cuando el emulador ya sabe
+decir la ruta real de la memoria:
+
+- Si el servidor tiene partida y no coincide con la del emulador, se inyecta y se
+  **reinicia el core**: es la única forma de que la lea de verdad.
+- Si el servidor no tiene nada y el navegador sí, gana el navegador y se sube.
+  EmulatorJS guarda una copia local en IndexedDB, así que por aquí se recupera una
+  partida que el servidor hubiera perdido.
+
+### Nunca subir una partida en blanco
+
+Una memoria de partida sin estrenar es un bloque uniforme: `0xFF` en la flash de
+GBA, `0x00` en casi todo lo demás. Es justo lo que devuelve el emulador cuando
+arranca sin haber restaurado nada, y **subirlo borra la partida buena**. Pasó: dos
+`.srm` de Pokémon Esmeralda acabaron enteros a `0xFF`, porque bastaba abrir el
+juego y esperar treinta segundos sin llegar a guardar.
+
+Hay tres frenos, y el que de verdad protege es el último:
+
+1. El cliente no sube nada hasta que la restauración se ha resuelto.
+2. El cliente no sube nunca un bloque uniforme.
+3. El servidor rechaza con `409` sobrescribir una partida con contenido por una
+   vacía, y guarda la versión anterior en `.srm.bak` antes de cada cambio.
+
+### Estados guardados
+
+Nueve ranuras por juego y usuario, cada una con su captura, en el panel
+**Estados** de la página de juego. Los botones de guardar y cargar estado de la
+barra de EmulatorJS se interceptan con `EJS_onSaveState` y `EJS_onLoadState`:
+cuando esos eventos tienen listener, la librería cancela su descarga a disco y su
+selector de fichero, y el estado viaja al servidor, a la ranura activa.
+
+Al abrir un juego se carga sola la ranura más reciente, pero **solo si es
+posterior al guardado del propio juego**. Si no, quien guarde dentro del juego y
+no en un estado vería su avance sustituido por una foto vieja al volver a entrar.
+
+La captura viaja en una petición aparte del estado: son dos binarios y mezclarlos
+en un `multipart` no aporta nada. Si falla, la ranura se queda sin imagen pero el
+estado ya está a salvo.
 
 También se puede **exportar** el `.srm` a disco e **importar** uno externo, que
 se sube al servidor y se inyecta en la partida en curso sin recargar.

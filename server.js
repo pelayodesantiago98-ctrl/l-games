@@ -66,6 +66,16 @@ const COOKIE = 'lgames_session';
 const SESSION_DAYS = 30;
 const MAX_SAVE_BYTES = 16 * 1024 * 1024; // holgado: la SRAM mayor ronda 8 MB
 
+/*
+ * Un estado guarda la maquina entera —RAM, VRAM, registros, audio—, no solo la
+ * memoria de la partida, asi que no cabe en el tope de la SRAM: en PSX o N64 un
+ * solo estado ronda los 10 MB. La miniatura es la captura que acompaña a cada
+ * ranura en el panel.
+ */
+const MAX_STATE_BYTES = 64 * 1024 * 1024;
+const MAX_MINIATURA_BYTES = 4 * 1024 * 1024;
+const SLOTS_ESTADO = 9;   // las mismas nueve ranuras que ofrece EmulatorJS
+
 // ─── utilidades ──────────────────────────────────────────────────────────────
 
 const esc = (value) =>
@@ -384,6 +394,71 @@ function savePath(user, systemId, romName) {
   return path.join(
     SAVES_DIR, safeName(user), safeName(systemId), `${safeName(romBase(romName))}.srm`
   );
+}
+
+/*
+ * Los estados van en su propio subdirectorio para no mezclarlos con las SRAM:
+ * asi el listado de ranuras no tiene que filtrar por extension y borrar todos
+ * los estados de un usuario es tirar una carpeta.
+ */
+const estadosDir = (user, systemId) =>
+  path.join(SAVES_DIR, safeName(user), safeName(systemId), 'estados');
+
+function statePath(user, systemId, romName, slot, ext = 'state') {
+  return path.join(estadosDir(user, systemId), `${safeName(romBase(romName))}.${slot}.${ext}`);
+}
+
+// Ranura valida: entero de 1 a SLOTS_ESTADO. Cualquier otra cosa es null y el
+// handler responde 400 en vez de construir una ruta con basura.
+function parseSlot(valor) {
+  const n = Number(valor);
+  return Number.isInteger(n) && n >= 1 && n <= SLOTS_ESTADO ? n : null;
+}
+
+async function listarEstados(user, systemId, romName) {
+  const estados = [];
+  for (let slot = 1; slot <= SLOTS_ESTADO; slot++) {
+    let stat;
+    try {
+      stat = await fsp.stat(statePath(user, systemId, romName, slot));
+    } catch {
+      continue;
+    }
+    estados.push({
+      slot,
+      bytes: stat.size,
+      fecha: Math.round(stat.mtimeMs),
+      miniatura: fs.existsSync(statePath(user, systemId, romName, slot, 'png')),
+    });
+  }
+  return estados;
+}
+
+/*
+ * Una memoria de partida recien inicializada es un bloque uniforme: 0xFF en la
+ * flash de GBA, 0x00 en la SRAM de casi todo lo demas. Distinguirla importa
+ * porque es lo que devuelve el emulador cuando arranca sin haber restaurado
+ * nada, y subirla encima de una partida buena la destruye sin dejar rastro.
+ */
+function partidaVacia(buf) {
+  if (!buf || !buf.length) return true;
+  const primero = buf[0];
+  if (primero !== 0x00 && primero !== 0xff) return false;
+  for (let i = 1; i < buf.length; i++) {
+    if (buf[i] !== primero) return false;
+  }
+  return true;
+}
+
+/*
+ * Escritura atomica: si el navegador muere a mitad de la subida, la partida
+ * previa sobrevive intacta en vez de quedarse a medias.
+ */
+async function escribirAtomico(file, datos) {
+  await fsp.mkdir(path.dirname(file), { recursive: true });
+  const temporal = `${file}.tmp`;
+  await fsp.writeFile(temporal, datos);
+  await fsp.rename(temporal, file);
 }
 
 const humanSize = (bytes) => {
@@ -1805,9 +1880,11 @@ ${lista}
   });
 }
 
-function playPage(user, system, rom, tieneSave) {
+function playPage(user, system, rom, tieneSave, estados, saveFecha) {
   const url = `/api/rom/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
   const saveUrl = `/api/save/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
+  const estadosUrl = `/api/estados/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
+  const estadoUrl = `/api/estado/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
   return layout({
     title: `${romBase(rom.name)} — L-games`,
     wide: true,
@@ -1818,10 +1895,20 @@ function playPage(user, system, rom, tieneSave) {
       <h1 class="play-title">${esc(romBase(rom.name))}</h1>
       <span id="save-status" class="save-status">${tieneSave ? 'Partida guardada encontrada' : 'Sin partida guardada'}</span>
       <span class="save-actions">
+        <button id="estados-btn" class="link-btn" type="button" aria-expanded="false">Estados</button>
         <a class="link-btn" href="${saveUrl}?descarga=1" download>Exportar partida</a>
         <label class="link-btn" for="import-save">Importar partida</label>
         <input id="import-save" type="file" accept=".srm,.sav,.sra,.fla,.bin" hidden>
       </span>
+    </div>
+
+    <div id="estados-panel" class="estados-panel" hidden>
+      <div class="estados-cab">
+        <strong>Estados guardados</strong>
+        <span class="estados-ayuda">Una foto exacta del momento, aparte del guardado del juego.</span>
+        <button id="estados-cerrar" class="link-btn" type="button">Cerrar</button>
+      </div>
+      <div id="estados-rejilla" class="estados-rejilla"></div>
     </div>
 
     <div id="game-wrap">
@@ -1842,6 +1929,11 @@ function playPage(user, system, rom, tieneSave) {
 
       (function () {
         var SAVE_URL = ${JSON.stringify(saveUrl)};
+        var ESTADOS_URL = ${JSON.stringify(estadosUrl)};
+        var ESTADO_URL  = ${JSON.stringify(estadoUrl)};
+        var SLOTS = ${SLOTS_ESTADO};
+        var ESTADOS = ${JSON.stringify(estados || [])};
+        var SAVE_FECHA = ${Number(saveFecha) || 0};
         var STATS_ABRIR  = ${JSON.stringify(`/api/stats/abrir/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`)};
         var STATS_TIEMPO = ${JSON.stringify(`/api/stats/tiempo/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`)};
         var estado   = document.getElementById('save-status');
@@ -1895,37 +1987,132 @@ function playPage(user, system, rom, tieneSave) {
           return window.EJS_emulator && window.EJS_emulator.gameManager;
         }
 
-        async function restaurar() {
+        /*
+         * Una memoria de partida sin estrenar es un bloque uniforme: 0xFF en la
+         * flash de GBA, 0x00 en casi todo lo demas. Es exactamente lo que
+         * devuelve el emulador cuando arranca sin haber restaurado nada, y
+         * subirlo borraba la partida buena del servidor. Nunca se sube.
+         */
+        function vacia(bytes) {
+          if (!bytes || !bytes.length) return true;
+          var primero = bytes[0];
+          if (primero !== 0 && primero !== 255) return false;
+          for (var i = 1; i < bytes.length; i++) {
+            if (bytes[i] !== primero) return false;
+          }
+          return true;
+        }
+
+        function iguales(a, b) {
+          if (!a || !b || a.length !== b.length) return false;
+          for (var i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return false;
+          }
+          return true;
+        }
+
+        /*
+         * La partida del servidor se descarga ANTES de arrancar el emulador y se
+         * mete en su disco virtual en cuanto este montado, porque el core lee la
+         * memoria de partida al cargar la ROM y ya no vuelve a mirarla. Inyectarla
+         * despues —como se hacia— llegaba tarde: el juego ya habia arrancado sin
+         * partida y decia que no habia ninguna.
+         */
+        var sramServidor = null;
+        var listo = false;   // hasta que la restauracion no se resuelve, no se sube nada
+
+        async function descargarSram() {
           try {
             var res = await fetch(SAVE_URL, { credentials: 'same-origin' });
-            if (!res.ok) return;                       // 404 = aun no hay partida
+            if (!res.ok) return null;                  // 404 = aun no hay partida
             var datos = new Uint8Array(await res.arrayBuffer());
-            if (!datos.length) return;
-
-            var g = gm();
-            if (!g) return;
-            g.saveSaveFiles();                          // asegura que exista la ruta
-            g.FS.writeFile(g.getSaveFilePath(), datos);
-            g.loadSaveFiles();
-            ultimo = huella(datos);
-            marcar('Partida restaurada');
+            return datos.length ? datos : null;
           } catch (err) {
-            console.error('No se pudo restaurar la partida:', err);
+            console.error('No se pudo descargar la partida:', err);
+            return null;
           }
         }
 
-        async function guardar(motivo) {
-          if (guardando) return;
+        // Escribe respetando el metodo del propio EmulatorJS: crea el arbol de
+        // directorios y borra el fichero previo antes de escribir.
+        function escribirEnEmulador(ruta, datos) {
           var g = gm();
-          if (!g) return;
-          var datos;
-          try { datos = g.getSaveFile(); } catch (err) { return; }
-          if (!datos || !datos.length) return;
+          if (!g) return false;
+          var partes = ruta.split('/');
+          var actual = '';
+          for (var i = 0; i < partes.length - 1; i++) {
+            if (partes[i] === '') continue;
+            actual += '/' + partes[i];
+            if (!g.FS.analyzePath(actual).exists) g.FS.mkdir(actual);
+          }
+          if (g.FS.analyzePath(ruta).exists) g.FS.unlink(ruta);
+          g.FS.writeFile(ruta, datos);
+          return true;
+        }
 
-          var h = huella(datos);
-          if (h === ultimo) return;                     // nada ha cambiado
+        /*
+         * Primera oportunidad: el disco de partidas ya esta montado y la ROM aun
+         * no se ha cargado, asi que el core encontrara la partida al arrancar y
+         * no hara falta reiniciarlo. La ruta se deduce igual que la deduce
+         * RetroArch —directorio fijo y nombre del contenido—, y si no acertamos,
+         * el repaso de "start" lo arregla.
+         */
+        function inyectarAntesDeArrancar() {
+          if (!sramServidor) return;
+          try {
+            var e = window.EJS_emulator;
+            var base = e.getBaseFileName(true) || 'game';
+            base = base.replace(/\\.[^.]+$/, '');
+            escribirEnEmulador('/data/saves/' + base + '.srm', sramServidor);
+          } catch (err) {
+            console.warn('No se pudo precargar la partida:', err);
+          }
+        }
 
-          guardando = true;
+        /*
+         * Repaso con el juego ya en marcha, cuando el emulador si sabe decir la
+         * ruta real de la memoria de partida. Aqui se decide quien manda:
+         *
+         *  - Si el servidor tiene partida y no coincide con la del emulador, se
+         *    inyecta y se reinicia el core para que la lea de verdad.
+         *  - Si el servidor no tiene nada y el navegador si, gana el navegador y
+         *    se sube. EmulatorJS guarda una copia local en el propio navegador,
+         *    asi que por aqui se recupera una partida que el servidor perdio.
+         */
+        async function resolverPartida() {
+          var g = gm();
+          if (!g) { listo = true; return; }
+
+          var local = null;
+          try { local = g.getSaveFile(false); } catch (err) { /* aun no existe */ }
+
+          if (sramServidor && !vacia(sramServidor)) {
+            if (iguales(local, sramServidor)) {
+              ultimo = huella(sramServidor);
+              marcar('Partida restaurada');
+            } else {
+              try {
+                escribirEnEmulador(g.getSaveFilePath(), sramServidor);
+                g.loadSaveFiles();
+                // El core ya habia leido la memoria vieja al cargar la ROM;
+                // reiniciarlo es la unica forma segura de que lea esta.
+                g.restart();
+                ultimo = huella(sramServidor);
+                marcar('Partida restaurada');
+              } catch (err) {
+                console.error('No se pudo restaurar la partida:', err);
+                marcar('No se pudo restaurar la partida');
+              }
+            }
+          } else if (local && !vacia(local)) {
+            marcar('Partida encontrada en este navegador, subiendola…');
+            await subir(local);
+          }
+
+          listo = true;
+        }
+
+        async function subir(datos) {
           try {
             var res = await fetch(SAVE_URL, {
               method: 'PUT',
@@ -1934,14 +2121,56 @@ function playPage(user, system, rom, tieneSave) {
               body: datos,
             });
             if (res.ok) {
-              ultimo = h;
+              ultimo = huella(datos);
               marcar('Guardado ' + new Date().toLocaleTimeString('es-ES'));
+              return true;
             }
+            if (res.status === 409) return false;      // el servidor protegio la partida
+            marcar('El servidor rechazo el guardado');
           } catch (err) {
             console.error('No se pudo guardar:', err);
+          }
+          return false;
+        }
+
+        async function guardar(motivo) {
+          if (guardando || !listo) return;
+          var g = gm();
+          if (!g) return;
+          var datos;
+          try { datos = g.getSaveFile(); } catch (err) { return; }
+          if (!datos || !datos.length) return;
+
+          // Sin esto, abrir un juego y no llegar a guardar borraba la partida
+          // del servidor a los treinta segundos.
+          if (vacia(datos)) return;
+
+          var h = huella(datos);
+          if (h === ultimo) return;                     // nada ha cambiado
+
+          guardando = true;
+          try {
+            await subir(datos);
           } finally {
             guardando = false;
           }
+        }
+
+        /*
+         * Al cerrar la pestaña un fetch se cancela a medias y el ultimo guardado
+         * se pierde. sendBeacon sobrevive a la pagina, pero solo sabe hacer POST.
+         */
+        function guardarAlSalir() {
+          if (!listo || !navigator.sendBeacon) return;
+          var g = gm();
+          if (!g) return;
+          var datos;
+          try { datos = g.getSaveFile(); } catch (err) { return; }
+          if (!datos || !datos.length || vacia(datos)) return;
+          if (huella(datos) === ultimo) return;
+          navigator.sendBeacon(
+            SAVE_URL, new Blob([datos], { type: 'application/octet-stream' })
+          );
         }
 
         /*
@@ -2038,13 +2267,243 @@ function playPage(user, system, rom, tieneSave) {
           });
         }
 
+        /*
+         * ── Estados guardados ─────────────────────────────────────────────
+         * Nueve ranuras por juego y usuario, cada una con su captura. Van al
+         * servidor, no al navegador: es lo que permite retomar la partida desde
+         * otro dispositivo. El guardado del propio juego (la SRAM de arriba)
+         * sigue siendo independiente de esto.
+         */
+        var panel      = document.getElementById('estados-panel');
+        var rejilla    = document.getElementById('estados-rejilla');
+        var btnEstados = document.getElementById('estados-btn');
+        var slotActivo = 1;
+
+        function fechaCorta(ms) {
+          var d = new Date(ms);
+          return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) + ' ' +
+                 d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function estadoDe(slot) {
+          for (var i = 0; i < ESTADOS.length; i++) {
+            if (ESTADOS[i].slot === slot) return ESTADOS[i];
+          }
+          return null;
+        }
+
+        function masReciente() {
+          var mejor = null;
+          for (var i = 0; i < ESTADOS.length; i++) {
+            if (!mejor || ESTADOS[i].fecha > mejor.fecha) mejor = ESTADOS[i];
+          }
+          return mejor;
+        }
+
+        function pintarEstados() {
+          if (!rejilla) return;
+          rejilla.textContent = '';
+          for (var slot = 1; slot <= SLOTS; slot++) {
+            var info = estadoDe(slot);
+            var caja = document.createElement('div');
+            caja.className = 'ranura' + (info ? ' ocupada' : '') +
+                             (slot === slotActivo ? ' activa' : '');
+
+            var cab = document.createElement('div');
+            cab.className = 'ranura-num';
+            cab.textContent = 'Ranura ' + slot;
+            caja.appendChild(cab);
+
+            var vista = document.createElement('div');
+            vista.className = 'ranura-vista';
+            if (info && info.miniatura) {
+              var img = document.createElement('img');
+              // La fecha en la URL evita que el navegador enseñe la captura vieja.
+              img.src = ESTADO_URL + '/' + slot + '/miniatura?t=' + info.fecha;
+              img.alt = 'Captura de la ranura ' + slot;
+              img.loading = 'lazy';
+              vista.appendChild(img);
+            } else {
+              vista.textContent = info ? 'Sin captura' : 'Vacía';
+            }
+            caja.appendChild(vista);
+
+            var pie = document.createElement('div');
+            pie.className = 'ranura-fecha';
+            pie.textContent = info ? fechaCorta(info.fecha) : '—';
+            caja.appendChild(pie);
+
+            var acciones = document.createElement('div');
+            acciones.className = 'ranura-acciones';
+            var botones = [['guardar', 'Guardar']];
+            if (info) botones.push(['cargar', 'Cargar'], ['borrar', 'Borrar']);
+            for (var b = 0; b < botones.length; b++) {
+              var btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'link-btn';
+              btn.dataset.accion = botones[b][0];
+              btn.dataset.slot = String(slot);
+              btn.textContent = botones[b][1];
+              acciones.appendChild(btn);
+            }
+            caja.appendChild(acciones);
+            rejilla.appendChild(caja);
+          }
+        }
+
+        async function refrescarEstados() {
+          try {
+            var res = await fetch(ESTADOS_URL, { credentials: 'same-origin' });
+            if (!res.ok) return;
+            var datos = await res.json();
+            ESTADOS = datos.estados || [];
+            pintarEstados();
+          } catch (err) {
+            console.error('No se pudo leer la lista de estados:', err);
+          }
+        }
+
+        async function guardarEstado(slot, evento) {
+          var g = gm();
+          if (!g) return;
+
+          var datos = evento && evento.state;
+          if (!datos) {
+            try { datos = g.getState(); } catch (err) { datos = null; }
+          }
+          if (!datos || !datos.length) {
+            marcar('Este núcleo no permite guardar estados');
+            return;
+          }
+
+          marcar('Guardando estado ' + slot + '…');
+          try {
+            var res = await fetch(ESTADO_URL + '/' + slot, {
+              method: 'PUT',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/octet-stream' },
+              body: datos,
+            });
+            if (!res.ok) throw new Error('el servidor rechazo el estado');
+
+            // La captura es un extra: si falla, la ranura queda sin imagen pero
+            // el estado ya esta a salvo.
+            var foto = evento && evento.screenshot;
+            if (!foto) {
+              try {
+                var e = window.EJS_emulator;
+                var hecho = await e.takeScreenshot(
+                  e.capture.photo.source, e.capture.photo.format, e.capture.photo.upscale
+                );
+                foto = hecho && hecho.screenshot;
+              } catch (err) { foto = null; }
+            }
+            if (foto && foto.length && foto[0] === 0x89) {
+              try {
+                await fetch(ESTADO_URL + '/' + slot + '/miniatura', {
+                  method: 'PUT',
+                  credentials: 'same-origin',
+                  headers: { 'Content-Type': 'image/png' },
+                  body: foto,
+                });
+              } catch (err) { /* la ranura se vera sin captura */ }
+            }
+
+            slotActivo = slot;
+            await refrescarEstados();
+            marcar('Estado ' + slot + ' guardado');
+          } catch (err) {
+            console.error('No se pudo guardar el estado:', err);
+            marcar('No se pudo guardar el estado');
+          }
+        }
+
+        async function cargarEstado(slot, silencioso) {
+          try {
+            var res = await fetch(ESTADO_URL + '/' + slot, { credentials: 'same-origin' });
+            if (!res.ok) {
+              if (!silencioso) marcar('Esa ranura está vacía');
+              return false;
+            }
+            var datos = new Uint8Array(await res.arrayBuffer());
+            var g = gm();
+            if (!g || !datos.length) return false;
+            g.loadState(datos);
+            slotActivo = slot;
+            pintarEstados();
+            marcar('Estado ' + slot + ' cargado');
+            return true;
+          } catch (err) {
+            console.error('No se pudo cargar el estado:', err);
+            if (!silencioso) marcar('No se pudo cargar el estado');
+            return false;
+          }
+        }
+
+        async function borrarEstado(slot) {
+          if (!window.confirm('¿Borrar el estado de la ranura ' + slot + '?')) return;
+          try {
+            await fetch(ESTADO_URL + '/' + slot, {
+              method: 'DELETE', credentials: 'same-origin',
+            });
+            await refrescarEstados();
+            marcar('Estado ' + slot + ' borrado');
+          } catch (err) {
+            console.error('No se pudo borrar el estado:', err);
+          }
+        }
+
+        if (rejilla) {
+          rejilla.addEventListener('click', function (ev) {
+            var btn = ev.target.closest('button[data-accion]');
+            if (!btn) return;
+            var slot = Number(btn.dataset.slot);
+            if (btn.dataset.accion === 'guardar') guardarEstado(slot);
+            else if (btn.dataset.accion === 'cargar') cargarEstado(slot);
+            else if (btn.dataset.accion === 'borrar') borrarEstado(slot);
+          });
+        }
+
+        function alternarPanel(abrir) {
+          if (!panel || !btnEstados) return;
+          var mostrar = abrir === undefined ? panel.hidden : abrir;
+          panel.hidden = !mostrar;
+          btnEstados.setAttribute('aria-expanded', String(mostrar));
+        }
+
+        if (btnEstados) btnEstados.addEventListener('click', function () { alternarPanel(); });
+        var cerrarEstados = document.getElementById('estados-cerrar');
+        if (cerrarEstados) cerrarEstados.addEventListener('click', function () { alternarPanel(false); });
+
+        /*
+         * Los botones de guardar y cargar estado de la barra de EmulatorJS: al
+         * haber un listener, el emulador cancela su descarga o su selector de
+         * fichero y el estado viaja al servidor, a la ranura activa.
+         */
+        window.EJS_onSaveState = function (evento) { guardarEstado(slotActivo, evento); };
+        window.EJS_onLoadState = function () { cargarEstado(slotActivo); };
+
         // El boton propio de EmulatorJS: al haber listener, cancela su descarga
         // y guardamos en el servidor.
         window.EJS_onSaveSave = function () { guardar('boton'); };
+
         window.EJS_onGameStart = function () {
-          setTimeout(restaurar, 600);
           vigilarMenu();
           contabilizarApertura();
+          (async function () {
+            await resolverPartida();
+            /*
+             * Retomar donde se dejo: se carga la ranura mas reciente. Solo si es
+             * posterior al guardado del propio juego, porque si no, quien haya
+             * guardado dentro del juego y no en un estado veria su avance
+             * sustituido por una foto vieja al volver a entrar.
+             */
+            var reciente = masReciente();
+            if (reciente && reciente.fecha >= SAVE_FECHA) {
+              await new Promise(function (r) { setTimeout(r, 400); });
+              await cargarEstado(reciente.slot, true);
+            }
+          })();
         };
 
         setInterval(function () { guardar('periodico'); }, 30000);
@@ -2053,16 +2512,46 @@ function playPage(user, system, rom, tieneSave) {
           if (document.visibilityState === 'hidden') guardar('oculto');
         });
 
-        // sendBeacon no sirve: necesitamos leer la SRAM antes de que muera la
-        // pagina, asi que guardamos de forma sincrona en la medida de lo posible.
         window.addEventListener('pagehide', function () {
-          guardar('salida');
+          guardarAlSalir();
           enviarTiempo(acumulado, true);
           acumulado = 0;
         });
+
+        /*
+         * Arranque: primero se trae la partida del servidor y solo despues se
+         * carga el emulador, para que su disco de partidas ya tenga la memoria
+         * puesta cuando monte el sistema de ficheros. Cargar loader.js antes
+         * seria volver a la carrera que hacia perder partidas.
+         */
+        var enganchado = false;
+        function engancharDisco() {
+          if (enganchado) return;
+          var e = window.EJS_emulator;
+          if (!e || typeof e.on !== 'function') return;
+          enganchado = true;
+          e.on('saveDatabaseLoaded', inyectarAntesDeArrancar);
+        }
+        window.EJS_ready = engancharDisco;
+
+        (async function arrancar() {
+          pintarEstados();
+          sramServidor = await descargarSram();
+
+          // "ready" deberia llegar mucho antes de que el disco se monte, pero el
+          // margen depende de lo que tarde en descargarse el core: este sondeo
+          // asegura el enganche pase lo que pase.
+          var espera = setInterval(function () {
+            engancharDisco();
+            if (enganchado) clearInterval(espera);
+          }, 10);
+
+          var s = document.createElement('script');
+          s.src = '/data/loader.js';
+          document.body.appendChild(s);
+        })();
       })();
-    </script>
-    <script src="/data/loader.js"></script>`,
+    </script>`,
   });
 }
 
@@ -2459,8 +2948,19 @@ app.get('/play/:id/:rom', requireAuth, async (req, res) => {
   if (!system) return res.redirect('/');
   const rom = await resolveRom(system.id, req.params.rom);
   if (!rom) return res.redirect(`/system/${encodeURIComponent(system.id)}`);
-  const tiene = fs.existsSync(savePath(req.user, system.id, rom.name));
-  res.type('html').send(playPage(req.user, system, rom, tiene));
+  /*
+   * Un .srm en blanco no cuenta como partida: anunciarlo confunde, porque el
+   * juego arrancaria igualmente sin nada que continuar. Quedan del fallo que
+   * subia la memoria virgen encima de la buena.
+   */
+  let saveFecha = 0;
+  try {
+    const file = savePath(req.user, system.id, rom.name);
+    const stat = await fsp.stat(file);
+    if (!partidaVacia(await fsp.readFile(file))) saveFecha = Math.round(stat.mtimeMs);
+  } catch { /* aun no hay partida */ }
+  const estados = await listarEstados(req.user, system.id, rom.name);
+  res.type('html').send(playPage(req.user, system, rom, saveFecha > 0, estados, saveFecha));
 });
 
 // ─── API: ROMs ───────────────────────────────────────────────────────────────
@@ -2640,11 +3140,27 @@ async function migrarJuego(systemId, viejo, nuevo) {
   }
 
   // Las partidas viven bajo cada usuario, así que hay que recorrerlos todos.
+  // Se mueven la SRAM, su copia de seguridad y las nueve ranuras de estado con
+  // sus miniaturas: lo que se quede atrás deja de encontrarse para siempre.
   try {
     for (const usuario of await fsp.readdir(SAVES_DIR)) {
-      const origen = path.join(SAVES_DIR, usuario, safeName(systemId), `${baseViejo}.srm`);
-      if (fs.existsSync(origen)) {
-        await fsp.rename(origen, path.join(SAVES_DIR, usuario, safeName(systemId), `${baseNuevo}.srm`));
+      const dir = path.join(SAVES_DIR, usuario, safeName(systemId));
+      const mover = async (carpeta, viejoRel, nuevoRel) => {
+        const origen = path.join(carpeta, viejoRel);
+        if (fs.existsSync(origen)) {
+          await fsp.mkdir(carpeta, { recursive: true });
+          await fsp.rename(origen, path.join(carpeta, nuevoRel));
+        }
+      };
+
+      await mover(dir, `${baseViejo}.srm`, `${baseNuevo}.srm`);
+      await mover(dir, `${baseViejo}.srm.bak`, `${baseNuevo}.srm.bak`);
+
+      const dirEstados = path.join(dir, 'estados');
+      for (let slot = 1; slot <= SLOTS_ESTADO; slot++) {
+        for (const ext of ['state', 'png']) {
+          await mover(dirEstados, `${baseViejo}.${slot}.${ext}`, `${baseNuevo}.${slot}.${ext}`);
+        }
       }
     }
   } catch (err) {
@@ -2731,28 +3247,174 @@ app.get('/api/save/:id/:rom', requireAuth, async (req, res) => {
   res.sendFile(file);
 });
 
+/*
+ * Guardar la SRAM. Con dos redes de seguridad, aprendidas por las malas: se
+ * perdieron partidas porque el emulador subia su memoria en blanco encima de
+ * una buena cada vez que arrancaba sin haber restaurado.
+ *
+ *  1. Nunca se sobrescribe una partida con contenido por una vacia. El cliente
+ *     ya evita mandarla, pero la guardia vive aqui porque es el ultimo sitio
+ *     donde todavia se puede salvar el fichero.
+ *  2. La version anterior queda en un .bak antes de cada sobrescritura, asi que
+ *     una partida pisada por error siempre se puede recuperar.
+ */
+async function guardarSram(req, res) {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+  if (!Buffer.isBuffer(req.body) || !req.body.length) {
+    return res.status(400).json({ error: 'cuerpo vacio' });
+  }
+
+  const file = savePath(req.user, system.id, rom.name);
+  let previa = null;
+  try { previa = await fsp.readFile(file); } catch { /* aun no habia partida */ }
+
+  if (previa && partidaVacia(req.body) && !partidaVacia(previa)) {
+    console.warn(
+      `Rechazada partida en blanco de ${req.user} para ${system.id}/${rom.name}`
+    );
+    return res.status(409).json({ error: 'la partida recibida esta en blanco' });
+  }
+
+  if (previa && !previa.equals(req.body)) {
+    await fsp.writeFile(`${file}.bak`, previa);
+  }
+  await escribirAtomico(file, req.body);
+
+  res.json({ ok: true, bytes: req.body.length });
+}
+
 app.put('/api/save/:id/:rom',
   requireAuth,
   express.raw({ type: '*/*', limit: MAX_SAVE_BYTES }),
+  guardarSram
+);
+
+/*
+ * Mismo handler por POST: al cerrar la pestaña un fetch se cancela a medias y
+ * el ultimo guardado se pierde. sendBeacon sobrevive a la pagina, pero solo
+ * sabe hacer POST.
+ */
+app.post('/api/save/:id/:rom',
+  requireAuth,
+  express.raw({ type: '*/*', limit: MAX_SAVE_BYTES }),
+  guardarSram
+);
+
+// ─── API: estados guardados ──────────────────────────────────────────────────
+
+app.get('/api/estados/:id/:rom', requireAuth, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+  res.set('Cache-Control', 'no-store');
+  res.json({ slots: SLOTS_ESTADO, estados: await listarEstados(req.user, system.id, rom.name) });
+});
+
+app.get('/api/estado/:id/:rom/:slot', requireAuth, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).end();
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).end();
+  const slot = parseSlot(req.params.slot);
+  if (!slot) return res.status(400).json({ error: 'ranura invalida' });
+
+  const file = statePath(req.user, system.id, rom.name, slot);
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'ranura vacia' });
+
+  if (req.query.descarga) {
+    return res.download(file, `${romBase(rom.name)}.${slot}.state`);
+  }
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(file);
+});
+
+app.get('/api/estado/:id/:rom/:slot/miniatura', requireAuth, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).end();
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).end();
+  const slot = parseSlot(req.params.slot);
+  if (!slot) return res.status(400).end();
+
+  const file = statePath(req.user, system.id, rom.name, slot, 'png');
+  if (!fs.existsSync(file)) return res.status(404).end();
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(file);
+});
+
+app.put('/api/estado/:id/:rom/:slot',
+  requireAuth,
+  express.raw({ type: '*/*', limit: MAX_STATE_BYTES }),
   async (req, res) => {
     const system = findSystem(req.params.id);
     if (!system) return res.status(404).json({ error: 'sistema desconocido' });
     const rom = await resolveRom(system.id, req.params.rom);
     if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+    const slot = parseSlot(req.params.slot);
+    if (!slot) return res.status(400).json({ error: 'ranura invalida' });
     if (!Buffer.isBuffer(req.body) || !req.body.length) {
       return res.status(400).json({ error: 'cuerpo vacio' });
     }
 
-    const file = savePath(req.user, system.id, rom.name);
-    await fsp.mkdir(path.dirname(file), { recursive: true });
-    // Escritura atómica: si el navegador muere a mitad, la partida previa sobrevive.
-    const temporal = `${file}.tmp`;
-    await fsp.writeFile(temporal, req.body);
-    await fsp.rename(temporal, file);
-
-    res.json({ ok: true, bytes: req.body.length });
+    await escribirAtomico(statePath(req.user, system.id, rom.name, slot), req.body);
+    res.json({ ok: true, slot, bytes: req.body.length, fecha: Date.now() });
   }
 );
+
+/*
+ * La miniatura viaja aparte del estado: son dos binarios y mezclarlos en una
+ * sola peticion obligaria a un multipart que aqui no aporta nada. Si falla, el
+ * estado sigue siendo valido y la ranura se ve sin imagen.
+ */
+app.put('/api/estado/:id/:rom/:slot/miniatura',
+  requireAuth,
+  express.raw({ type: '*/*', limit: MAX_MINIATURA_BYTES }),
+  async (req, res) => {
+    const system = findSystem(req.params.id);
+    if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+    const rom = await resolveRom(system.id, req.params.rom);
+    if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+    const slot = parseSlot(req.params.slot);
+    if (!slot) return res.status(400).json({ error: 'ranura invalida' });
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      return res.status(400).json({ error: 'cuerpo vacio' });
+    }
+    // Solo PNG: es lo que produce la captura de EmulatorJS y evita servir como
+    // imagen cualquier cosa que llegue por esta ruta.
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    if (!req.body.subarray(0, 4).equals(png)) {
+      return res.status(400).json({ error: 'la miniatura debe ser PNG' });
+    }
+
+    await escribirAtomico(statePath(req.user, system.id, rom.name, slot, 'png'), req.body);
+    res.json({ ok: true, slot });
+  }
+);
+
+app.delete('/api/estado/:id/:rom/:slot', requireAuth, async (req, res) => {
+  const system = findSystem(req.params.id);
+  if (!system) return res.status(404).json({ error: 'sistema desconocido' });
+  const rom = await resolveRom(system.id, req.params.rom);
+  if (!rom) return res.status(404).json({ error: 'juego desconocido' });
+  const slot = parseSlot(req.params.slot);
+  if (!slot) return res.status(400).json({ error: 'ranura invalida' });
+
+  for (const ext of ['state', 'png']) {
+    try {
+      await fsp.unlink(statePath(req.user, system.id, rom.name, slot, ext));
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+  }
+  res.json({ ok: true, slot });
+});
 
 app.get('/health', (req, res) => res.json({ ok: true, systems: loadSystems().length }));
 
