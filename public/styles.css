@@ -1079,6 +1079,41 @@ kbd {
 #detalle-edicion .campo { margin-bottom: 0.75rem; }
 #detalle-edicion .btn { margin-top: 0.35rem; }
 
+/* Editando, la franja de imagen cede altura al formulario. */
+.detalle-caja.editando .detalle-media {
+  height: 22%;
+  transition: height 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.detalle-media { transition: height 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* El formulario también aparece con transición, no de golpe. */
+#detalle-edicion { animation: entrar-form 0.22s ease-out; }
+
+@keyframes entrar-form {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Gestión de usuarios ────────────────────────────────────────────────── */
+
+.etiqueta-rol {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 550;
+  color: var(--muted);
+}
+
+.etiqueta-rol.es-admin {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
 /* ── Podio de estadísticas ──────────────────────────────────────────────── */
 
 .podio {

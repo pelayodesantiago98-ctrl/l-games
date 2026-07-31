@@ -425,6 +425,7 @@ function layout({ title, body, user, wide, fija }) {
         <a href="/perfil">Editar perfil</a>
         <a href="/estadisticas">Estadísticas</a>
         <a href="/controles">Controles</a>
+        ${esAdmin(user) ? '<a href="/gestion">Gestión</a>' : ''}
         <form method="post" action="/logout">
           <button type="submit">Desconectarse</button>
         </form>
@@ -503,6 +504,9 @@ function registroPage(error, datos) {
         <input id="p" name="password" type="password" required autocomplete="new-password">
         <span class="ayuda">Mínimo 8 caracteres.</span>
 
+        <label for="p2">Confirmar contraseña</label>
+        <input id="p2" name="password2" type="password" required autocomplete="new-password">
+
         <label for="a">Contraseña de administrador</label>
         <input id="a" name="clave" type="password" required autocomplete="off">
 
@@ -569,6 +573,10 @@ function perfilPage(user, aviso, error) {
           <label for="nueva">Contraseña nueva</label>
           <input id="nueva" name="nueva" type="password" required autocomplete="new-password">
           <span class="ayuda">Mínimo 8 caracteres.</span>
+        </div>
+        <div class="campo">
+          <label for="nueva2">Confirmar contraseña nueva</label>
+          <input id="nueva2" name="nueva2" type="password" required autocomplete="new-password">
         </div>
         <button class="btn" type="submit">Cambiar contraseña</button>
       </form>
@@ -697,6 +705,75 @@ ${consolas}
     exportar tu partida a un fichero o importar una que tengas.</p>
 
     <p class="volver"><a class="btn" href="/">Volver a las consolas</a></p>`,
+  });
+}
+
+function gestionPage(user) {
+  const users = loadUsers();
+  const fecha = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return `${d.toLocaleDateString('es-ES')} ${d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  const filas = Object.entries(users)
+    .sort((a, b) => a[0].localeCompare(b[0], 'es'))
+    .map(([nombre, d]) => {
+      // El buscador filtra en cliente sobre este atributo, así no hay que ir al
+      // servidor por cada tecla y funciona con la lista ya pintada.
+      const busca = `${nombre} ${d.nombre || ''} ${d.rol || 'usuario'}`.toLowerCase();
+      return `          <tr data-busca="${esc(busca)}">
+            <td><b>${esc(nombre)}</b></td>
+            <td>${esc(d.nombre || '—')}</td>
+            <td><span class="etiqueta-rol ${d.rol === 'admin' ? 'es-admin' : ''}">${esc(d.rol || 'usuario')}</span></td>
+            <td class="nota">${esc(fecha(d.creado))}</td>
+            <td class="nota">${esc(fecha(d.ultimoAcceso))}</td>
+          </tr>`;
+    }).join('\n');
+
+  const total = Object.keys(users).length;
+  const admins = Object.values(users).filter((u) => u.rol === 'admin').length;
+
+  return layout({
+    title: 'Gestión — L-games',
+    user,
+    body: `    <div class="head">
+      <h1 class="title">Gestión</h1>
+      <p class="subtitle">${total} ${total === 1 ? 'usuario registrado' : 'usuarios registrados'} · ${admins} ${admins === 1 ? 'administrador' : 'administradores'}</p>
+    </div>
+
+    <div class="campo">
+      <label for="buscar">Buscar</label>
+      <input id="buscar" type="text" placeholder="Usuario, nombre o rol" autocomplete="off">
+    </div>
+
+    <div class="tabla-scroll">
+      <table class="tabla" id="tabla-usuarios">
+        <thead><tr><th>Usuario</th><th>Nombre real</th><th>Rol</th><th>Registro</th><th>Último acceso</th></tr></thead>
+        <tbody>
+${filas}
+        </tbody>
+      </table>
+    </div>
+    <p id="sin-resultados" class="empty" hidden>Ningún usuario coincide.</p>
+
+    <script>
+      (function () {
+        var caja = document.getElementById('buscar');
+        var filas = Array.from(document.querySelectorAll('#tabla-usuarios tbody tr'));
+        var aviso = document.getElementById('sin-resultados');
+        caja.addEventListener('input', function () {
+          var q = caja.value.trim().toLowerCase();
+          var visibles = 0;
+          filas.forEach(function (f) {
+            var ok = !q || f.dataset.busca.indexOf(q) !== -1;
+            f.hidden = !ok;
+            if (ok) visibles++;
+          });
+          aviso.hidden = visibles > 0;
+        });
+      })();
+    </script>`,
   });
 }
 
@@ -1184,9 +1261,14 @@ ${lista}
           var media  = document.getElementById('detalle-media');
           var origen = null;   // tarjeta desde la que se abrió, para cerrar hacia ella
 
+          var editando = false;
+
+          // En modo edición la ventana necesita más sitio: el formulario tiene
+          // seis campos. Se recalcula aquí para que crecer y encoger reutilicen
+          // la misma transición que la apertura.
           function medidaDestino() {
-            var ancho = Math.min(440, window.innerWidth - 32);
-            var alto  = Math.min(600, window.innerHeight - 32);
+            var ancho = Math.min(editando ? 500 : 440, window.innerWidth - 32);
+            var alto  = Math.min(editando ? 740 : 600, window.innerHeight - 32);
             return {
               left: (window.innerWidth - ancho) / 2,
               top: (window.innerHeight - alto) / 2,
@@ -1204,6 +1286,8 @@ ${lista}
           function abrir(card) {
             origen = card;
             // Siempre se abre en la vista normal, aunque se cerrara editando.
+            editando = false;
+            caja.classList.remove('editando');
             var v0 = document.getElementById('detalle-vista');
             var e0 = document.getElementById('detalle-edicion');
             if (e0) { v0.hidden = false; e0.hidden = true; }
@@ -1299,8 +1383,15 @@ ${lista}
             var edBox = document.getElementById('ed-progreso');
 
             function verEdicion(v) {
-              vista.hidden = v;
-              edicion.hidden = !v;
+              editando = v;
+              caja.classList.toggle('editando', v);
+              // Primero crece la caja y después entra el formulario, para que
+              // no se vea el contenido reflowing mientras la ventana se mueve.
+              colocar(medidaDestino());
+              setTimeout(function () {
+                vista.hidden = v;
+                edicion.hidden = !v;
+              }, v ? 130 : 0);
               if (v) {
                 document.getElementById('ed-nombre').value = origen.dataset.nombre || '';
                 document.getElementById('ed-desc').value = origen.dataset.descripcion || '';
@@ -1697,6 +1788,14 @@ app.post('/login', formulario, (req, res) => {
     return res.status(401).type('html').send(loginPage('Usuario o contraseña incorrectos.'));
   }
   attempts.delete(ip);
+
+  // Se anota el acceso para que la pantalla de gestión pueda mostrarlo.
+  const todos = loadUsers();
+  if (todos[nombre]) {
+    todos[nombre].ultimoAcceso = new Date().toISOString();
+    guardarUsuarios(todos).catch((err) => console.error(`Anotando acceso: ${err.message}`));
+  }
+
   res.cookie(COOKIE, createSession(nombre), {
     httpOnly: true, secure: true, sameSite: 'lax',
     maxAge: SESSION_DAYS * 864e5, path: '/',
@@ -1754,6 +1853,9 @@ app.post('/registro', formulario, async (req, res) => {
     return fallo('El usuario debe tener entre 3 y 24 caracteres: letras, números, punto, guion o guion bajo.');
   }
   if (password.length < 8) return fallo('La contraseña debe tener al menos 8 caracteres.');
+  if (password !== String((req.body || {}).password2 || '')) {
+    return fallo('Las dos contraseñas no coinciden.');
+  }
 
   const users = loadUsers();
   // Sin distinguir mayúsculas: "Ana" y "ana" serían dos rutas distintas en disco
@@ -1852,6 +1954,11 @@ app.post('/perfil/clave', requireAuth, formulario, async (req, res) => {
       perfilPage(req.user, null, 'La contraseña nueva debe tener al menos 8 caracteres.')
     );
   }
+  if (nueva !== String((req.body || {}).nueva2 || '')) {
+    return res.status(400).type('html').send(
+      perfilPage(req.user, null, 'Las dos contraseñas nuevas no coinciden.')
+    );
+  }
 
   users[req.user] = { ...yo, ...nuevoHash(nueva) };
   await guardarUsuarios(users);
@@ -1875,6 +1982,10 @@ app.get('/controles', requireAuth, (req, res) => {
 
 app.get('/estadisticas', requireAuth, (req, res) => {
   res.type('html').send(estadisticasPage(req.user));
+});
+
+app.get('/gestion', requireAuth, requireAdmin, (req, res) => {
+  res.type('html').send(gestionPage(req.user));
 });
 
 // ─── API: registro de uso ────────────────────────────────────────────────────

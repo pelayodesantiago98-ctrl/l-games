@@ -136,6 +136,22 @@ parte de rutas en disco, y los duplicados se comprueban **sin distinguir
 mayúsculas**: `Ana` y `ana` serían dos carpetas distintas pero la misma persona
 a ojos de cualquiera.
 
+## Gestión de usuarios
+
+Los administradores tienen **Gestión** en el menú del avatar: la lista de
+usuarios registrados con su nombre real, rol, fecha de alta y último acceso, y
+un buscador que filtra en el navegador sobre la lista ya pintada, sin ir al
+servidor por cada tecla.
+
+El último acceso se anota al iniciar sesión. La escritura no bloquea la
+respuesta: si fallara, el usuario entra igual y solo se pierde el dato.
+
+## Contraseñas
+
+Tanto al registrarse como al cambiarla hay un campo de **confirmación**. Se
+comparan en el servidor, no solo en el navegador: la validación de cliente es
+comodidad, no garantía.
+
 ## Perfil
 
 En `/perfil`, cualquier usuario puede cambiar su foto, su nombre visible, su
@@ -220,8 +236,11 @@ primera, y si tampoco hay, a la imagen fija.
 
 ### Editar un juego
 
-En la ventana de detalle, un administrador ve un botón **Editar** que permite
-cambiar nombre, descripción, las tres imágenes y **la propia ROM**.
+En la ventana de detalle, un administrador ve un botón **Editar**: la ventana
+**crece** para dejar sitio al formulario y este entra después, ya terminado el
+movimiento, para que no se vea el contenido recolocándose mientras la caja se
+desplaza. Permite cambiar nombre, descripción, las tres imágenes y **la propia
+ROM**.
 
 Reemplazar la ROM por un fichero con otro nombre cambia la identidad del juego,
 cuya clave es `<sistema>/<fichero>`. Se migran metadatos, estadísticas,
