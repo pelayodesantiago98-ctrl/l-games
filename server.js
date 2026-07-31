@@ -11,6 +11,13 @@ const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '127.0.0.1';
 const SECRET = process.env.SESSION_SECRET;
 
+/*
+ * Clave compartida para darse de alta. Vive en .env y no en el código: aquí
+ * acabaría en el repositorio y en su historial para siempre. Si falta, el
+ * registro queda cerrado en vez de quedarse abierto sin protección.
+ */
+const CLAVE_REGISTRO = process.env.CLAVE_REGISTRO || '';
+
 if (!SECRET) {
   console.error('Falta SESSION_SECRET en el entorno. Abortando.');
   process.exit(1);
@@ -153,6 +160,36 @@ async function guardarMetaJuego(systemId, rom, datos) {
   await fsp.rename(temporal, JUEGOS_FILE);
 }
 
+// ─── perfiles ────────────────────────────────────────────────────────────────
+
+const fotoDe = (usuario) => buscarMedia('perfiles', usuario, '', EXT_IMAGEN);
+
+// Iniciales para cuando no hay foto: "Ana Ruiz Gil" -> "AR", "lepayo" -> "L".
+function inicialesDe(usuario) {
+  const u = loadUsers()[usuario] || {};
+  const base = (u.nombre || usuario).trim();
+  const partes = base.split(/\s+/).filter(Boolean);
+  const letras = partes.length > 1
+    ? partes[0][0] + partes[1][0]
+    : base.slice(0, 2);
+  return letras.toUpperCase();
+}
+
+// Nombres de usuario acotados: forman rutas de directorio de partidas y de foto.
+const USUARIO_VALIDO = /^[a-zA-Z0-9._-]{3,24}$/;
+
+async function guardarUsuarios(users) {
+  await fsp.mkdir(CONFIG_DIR, { recursive: true });
+  const temporal = `${USERS_FILE}.tmp`;
+  await fsp.writeFile(temporal, JSON.stringify(users, null, 2) + '\n', { mode: 0o640 });
+  await fsp.rename(temporal, USERS_FILE);
+}
+
+function nuevoHash(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return { salt, hash: hashPassword(password, salt) };
+}
+
 // ─── roles ───────────────────────────────────────────────────────────────────
 
 const esAdmin = (usuario) => (loadUsers()[usuario] || {}).rol === 'admin';
@@ -255,6 +292,7 @@ function noteAttempt(ip) {
 // ─── plantillas ──────────────────────────────────────────────────────────────
 
 function layout({ title, body, user, wide, fija }) {
+  const foto = user ? fotoDe(user) : null;
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -269,9 +307,13 @@ function layout({ title, body, user, wide, fija }) {
     ${user ? `<nav class="topnav">
       <a class="link-btn" href="/controles">Controles</a>
       <form class="logout" method="post" action="/logout">
-        <span class="who">${esc(user)}</span>
         <button class="link-btn" type="submit">Salir</button>
       </form>
+      <a class="avatar" href="/perfil" title="${esc(user)} — abrir perfil" aria-label="Perfil de ${esc(user)}">
+        ${foto
+          ? `<img src="${esc(foto.url)}" alt="">`
+          : `<span class="avatar-iniciales">${esc(inicialesDe(user))}</span>`}
+      </a>
     </nav>` : ''}
   </header>
   <main class="${wide ? 'wrap wrap-wide' : 'wrap'}">
@@ -296,7 +338,139 @@ function loginPage(error) {
         <input id="p" name="password" type="password" required autocomplete="current-password">
         <button class="btn" type="submit">Entrar</button>
       </form>
+      <p class="login-pie"><a href="/registro">Crear una cuenta</a></p>
     </div>`,
+  });
+}
+
+function registroPage(error, datos) {
+  const d = datos || {};
+  return layout({
+    title: 'Crear cuenta — L-games',
+    body: `    <div class="login-box">
+      <h1>Crear cuenta</h1>
+      <p class="sub">Necesitas la clave que da el administrador</p>
+      ${error ? `<p class="error">${esc(error)}</p>` : ''}
+      <form method="post" action="/registro" autocomplete="on">
+        <label for="n">Nombre y apellidos</label>
+        <input id="n" name="nombre" type="text" required autofocus maxlength="80"
+               value="${esc(d.nombre || '')}" autocomplete="name">
+
+        <label for="u">Usuario</label>
+        <input id="u" name="username" type="text" required maxlength="24"
+               value="${esc(d.username || '')}" autocapitalize="none" autocomplete="username">
+        <span class="ayuda">Entre 3 y 24 caracteres: letras, números, punto, guion o guion bajo.</span>
+
+        <label for="p">Contraseña</label>
+        <input id="p" name="password" type="password" required autocomplete="new-password">
+        <span class="ayuda">Mínimo 8 caracteres.</span>
+
+        <label for="a">Contraseña de administrador</label>
+        <input id="a" name="clave" type="password" required autocomplete="off">
+
+        <button class="btn" type="submit">Crear cuenta</button>
+      </form>
+      <p class="login-pie"><a href="/login">Ya tengo cuenta</a></p>
+    </div>`,
+  });
+}
+
+function perfilPage(user, aviso, error) {
+  const u = loadUsers()[user] || {};
+  const foto = fotoDe(user);
+  return layout({
+    title: 'Mi perfil — L-games',
+    user,
+    body: `    <div class="head">
+      <h1 class="title">Mi perfil</h1>
+      <p class="subtitle">${esc(u.rol === 'admin' ? 'Administrador' : 'Usuario')}</p>
+    </div>
+    ${aviso ? `<p class="aviso">${esc(aviso)}</p>` : ''}
+    ${error ? `<p class="error">${esc(error)}</p>` : ''}
+
+    <section class="panel">
+      <h2 class="panel-titulo">Foto de perfil</h2>
+      <div class="perfil-foto">
+        <span class="avatar avatar-grande">
+          ${foto ? `<img src="${esc(foto.url)}" alt="">`
+                 : `<span class="avatar-iniciales">${esc(inicialesDe(user))}</span>`}
+        </span>
+        <div>
+          <label class="btn file-btn" for="foto">${foto ? 'Cambiar foto' : 'Subir foto'}</label>
+          <input id="foto" type="file" accept="${esc(EXT_IMAGEN.join(','))}" hidden>
+          <p class="campo-nota">${esc(EXT_IMAGEN.join(' '))} · máximo 24 MB. Se recorta en círculo.</p>
+        </div>
+      </div>
+      <div id="prog-foto" class="progress" hidden><div id="bar-foto" class="bar"></div><span id="txt-foto" class="ptext"></span></div>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-titulo">Datos de la cuenta</h2>
+      <form method="post" action="/perfil/datos">
+        <div class="campo">
+          <label for="nombre">Nombre y apellidos</label>
+          <input id="nombre" name="nombre" type="text" maxlength="80" value="${esc(u.nombre || '')}">
+        </div>
+        <div class="campo">
+          <label for="usuario">Usuario</label>
+          <input id="usuario" name="usuario" type="text" maxlength="24" value="${esc(user)}" autocapitalize="none">
+          <span class="ayuda">Si lo cambias se moverán tus partidas y tendrás que usar el nuevo para entrar.</span>
+        </div>
+        <button class="btn" type="submit">Guardar</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-titulo">Contraseña</h2>
+      <form method="post" action="/perfil/clave" autocomplete="off">
+        <div class="campo">
+          <label for="actual">Contraseña actual</label>
+          <input id="actual" name="actual" type="password" required autocomplete="current-password">
+        </div>
+        <div class="campo">
+          <label for="nueva">Contraseña nueva</label>
+          <input id="nueva" name="nueva" type="password" required autocomplete="new-password">
+          <span class="ayuda">Mínimo 8 caracteres.</span>
+        </div>
+        <button class="btn" type="submit">Cambiar contraseña</button>
+      </form>
+    </section>
+
+    <script>
+      (function () {
+        var el = document.getElementById('foto');
+        var box = document.getElementById('prog-foto');
+        var bar = document.getElementById('bar-foto');
+        var txt = document.getElementById('txt-foto');
+        if (!el) return;
+        el.addEventListener('change', function () {
+          var f = el.files && el.files[0];
+          if (!f) return;
+          box.hidden = false;
+          bar.style.background = '';
+          var xhr = new XMLHttpRequest();
+          xhr.open('PUT', '/api/foto/' + encodeURIComponent(f.name));
+          xhr.upload.onprogress = function (e) {
+            if (!e.lengthComputable) return;
+            var pct = Math.round((e.loaded / e.total) * 100);
+            bar.style.width = pct + '%';
+            txt.textContent = pct + '%';
+          };
+          xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300) { location.reload(); return; }
+            var msg = xhr.responseText;
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+            txt.textContent = 'Error: ' + msg;
+            bar.style.background = 'var(--danger)';
+          };
+          xhr.onerror = function () {
+            txt.textContent = 'Error de red';
+            bar.style.background = 'var(--danger)';
+          };
+          xhr.send(f);
+        });
+      })();
+    </script>`,
   });
 }
 
@@ -958,6 +1132,159 @@ app.post('/login', formulario, (req, res) => {
 app.post('/logout', (req, res) => {
   res.clearCookie(COOKIE, { path: '/' });
   res.redirect('/login');
+});
+
+// ─── alta de usuarios ────────────────────────────────────────────────────────
+
+const ponerSesion = (res, usuario) => res.cookie(COOKIE, createSession(usuario), {
+  httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_DAYS * 864e5, path: '/',
+});
+
+app.get('/registro', (req, res) => {
+  if (readSession(req)) return res.redirect('/');
+  res.type('html').send(registroPage(null, null));
+});
+
+app.post('/registro', formulario, async (req, res) => {
+  const ip = req.headers['x-real-ip'] || req.ip || 'desconocida';
+  const enviado = {
+    nombre: String((req.body || {}).nombre || '').trim(),
+    username: String((req.body || {}).username || '').trim(),
+  };
+  const fallo = (msg, codigo) => res.status(codigo || 400).type('html')
+    .send(registroPage(msg, enviado));
+
+  if (!CLAVE_REGISTRO) {
+    return fallo('El registro está cerrado: falta configurar la clave en el servidor.', 503);
+  }
+  // El mismo freno que el login: la clave compartida es adivinable a fuerza bruta.
+  if (tooManyAttempts(ip)) {
+    return fallo('Demasiados intentos fallidos. Espera unos minutos.', 429);
+  }
+
+  const password = String((req.body || {}).password || '');
+  const clave = String((req.body || {}).clave || '');
+
+  const esperada = Buffer.from(CLAVE_REGISTRO);
+  const recibida = Buffer.from(clave);
+  const claveOk = esperada.length === recibida.length &&
+                  crypto.timingSafeEqual(esperada, recibida);
+  if (!claveOk) {
+    noteAttempt(ip);
+    return fallo('La contraseña de administrador no es correcta.', 401);
+  }
+
+  if (!enviado.nombre) return fallo('Pon tu nombre y apellidos.');
+  if (!USUARIO_VALIDO.test(enviado.username)) {
+    return fallo('El usuario debe tener entre 3 y 24 caracteres: letras, números, punto, guion o guion bajo.');
+  }
+  if (password.length < 8) return fallo('La contraseña debe tener al menos 8 caracteres.');
+
+  const users = loadUsers();
+  // Sin distinguir mayúsculas: "Ana" y "ana" serían dos rutas distintas en disco
+  // pero la misma persona a ojos de cualquiera.
+  const existe = Object.keys(users).some((u) => u.toLowerCase() === enviado.username.toLowerCase());
+  if (existe) return fallo('Ese usuario ya está cogido.');
+
+  users[enviado.username] = {
+    ...nuevoHash(password),
+    nombre: enviado.nombre,
+    rol: 'usuario',
+    creado: new Date().toISOString(),
+  };
+  await guardarUsuarios(users);
+  attempts.delete(ip);
+
+  ponerSesion(res, enviado.username);
+  res.redirect('/');
+});
+
+// ─── perfil ──────────────────────────────────────────────────────────────────
+
+app.get('/perfil', requireAuth, (req, res) => {
+  res.type('html').send(perfilPage(req.user, req.query.ok ? 'Cambios guardados.' : null, null));
+});
+
+app.post('/perfil/datos', requireAuth, formulario, async (req, res) => {
+  const users = loadUsers();
+  const actual = req.user;
+  const nombre = String((req.body || {}).nombre || '').trim().slice(0, 80);
+  const nuevo = String((req.body || {}).usuario || '').trim();
+
+  if (nuevo !== actual) {
+    if (!USUARIO_VALIDO.test(nuevo)) {
+      return res.status(400).type('html').send(
+        perfilPage(actual, null, 'El usuario debe tener entre 3 y 24 caracteres: letras, números, punto, guion o guion bajo.')
+      );
+    }
+    const chocan = Object.keys(users).some((u) => u.toLowerCase() === nuevo.toLowerCase());
+    if (chocan) {
+      return res.status(400).type('html').send(perfilPage(actual, null, 'Ese usuario ya está cogido.'));
+    }
+
+    /*
+     * El nombre de usuario forma parte de rutas en disco, así que renombrarlo
+     * arrastra sus partidas y su foto. Se mueve todo antes de tocar users.json:
+     * si algo falla a medias, el usuario sigue existiendo con su nombre viejo
+     * y sus datos intactos.
+     */
+    try {
+      const saveViejo = path.join(SAVES_DIR, safeName(actual));
+      const saveNuevo = path.join(SAVES_DIR, safeName(nuevo));
+      if (fs.existsSync(saveViejo)) await fsp.rename(saveViejo, saveNuevo);
+
+      const foto = fotoDe(actual);
+      if (foto) {
+        await fsp.rename(
+          path.join(MEDIA_ROOT, foto.rel),
+          path.join(MEDIA_ROOT, 'perfiles', safeName(nuevo) + foto.ext)
+        );
+      }
+    } catch (err) {
+      console.error(`Renombrando ${actual} -> ${nuevo}: ${err.message}`);
+      return res.status(500).type('html').send(
+        perfilPage(actual, null, 'No se pudieron mover tus datos; no se ha cambiado nada.')
+      );
+    }
+
+    users[nuevo] = { ...users[actual], nombre: nombre || users[actual].nombre };
+    delete users[actual];
+    await guardarUsuarios(users);
+
+    // La sesión lleva el nombre dentro: hay que reemitirla o quedaría huérfana.
+    ponerSesion(res, nuevo);
+    return res.redirect('/perfil?ok=1');
+  }
+
+  users[actual] = { ...users[actual], nombre };
+  await guardarUsuarios(users);
+  res.redirect('/perfil?ok=1');
+});
+
+app.post('/perfil/clave', requireAuth, formulario, async (req, res) => {
+  const users = loadUsers();
+  const yo = users[req.user];
+  const actual = String((req.body || {}).actual || '');
+  const nueva = String((req.body || {}).nueva || '');
+
+  if (!verifyPassword(actual, yo)) {
+    return res.status(401).type('html').send(
+      perfilPage(req.user, null, 'La contraseña actual no es correcta.')
+    );
+  }
+  if (nueva.length < 8) {
+    return res.status(400).type('html').send(
+      perfilPage(req.user, null, 'La contraseña nueva debe tener al menos 8 caracteres.')
+    );
+  }
+
+  users[req.user] = { ...yo, ...nuevoHash(nueva) };
+  await guardarUsuarios(users);
+  res.redirect('/perfil?ok=1');
+});
+
+app.put('/api/foto/:archivo', requireAuth, async (req, res) => {
+  await recibirMedia(req, res, { subdir: 'perfiles', base: req.user, tipo: 'portada' });
 });
 
 app.get('/', requireAuth, async (req, res) => {

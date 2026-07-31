@@ -79,10 +79,44 @@ cuatro; la guía incluye la tabla de equivalencias.
   dedo. Se muestra con `(hover: none) and (pointer: coarse)`, que distingue un
   dedo de un ratón mejor que el ancho de pantalla.
 
+## Alta de usuarios
+
+Desde el login hay un enlace a **Crear cuenta**: nombre y apellidos, usuario,
+contraseña y una **clave compartida** que reparte el administrador. Quien la
+tenga puede darse de alta; nace siempre con rol `usuario`.
+
+La clave vive en `.env` como `CLAVE_REGISTRO`, **nunca en el código**: ahí
+acabaría en el repositorio y en su historial para siempre. Si la variable falta,
+el registro queda cerrado en lugar de quedarse abierto sin protección. Se
+compara en tiempo constante y comparte el freno de fuerza bruta del login, que
+es adivinable a base de intentos.
+
+El nombre de usuario se valida contra `^[a-zA-Z0-9._-]{3,24}$` porque forma
+parte de rutas en disco, y los duplicados se comprueban **sin distinguir
+mayúsculas**: `Ana` y `ana` serían dos carpetas distintas pero la misma persona
+a ojos de cualquiera.
+
+## Perfil
+
+En `/perfil`, cualquier usuario puede cambiar su foto, su nombre visible, su
+nombre de usuario y su contraseña.
+
+**Renombrarse mueve datos.** El nombre de usuario forma parte de la ruta de sus
+partidas y de su foto, así que el cambio arrastra `saves/<usuario>/` y
+`media/perfiles/<usuario>.<ext>`, y reemite la cookie de sesión, que lleva el
+nombre dentro. Los ficheros se mueven **antes** de tocar `users.json`: si algo
+falla a medias, la cuenta sigue existiendo con el nombre viejo y los datos
+intactos, en vez de quedar apuntando a un sitio vacío.
+
+La foto se muestra en un círculo a la derecha de la barra superior, recortada
+con `object-fit: cover` para que no se deforme sea cual sea su proporción. Sin
+foto se usan las iniciales: dos si hay nombre y apellido, y si no las dos
+primeras letras.
+
 ## Roles
 
-Cada usuario tiene un `rol` en `config/users.json`: `usuario` (por defecto) o
-`admin`. Se asigna al crearlo:
+Cada usuario tiene un `rol` en `config/users.json`: `usuario` (el de quien se
+da de alta desde la web) o `admin`. Desde la línea de órdenes:
 
 ```bash
 node adduser.js <usuario> <contraseña> admin
@@ -222,4 +256,5 @@ node adduser.js <usuario> <contraseña>
 node server.js          # escucha en 127.0.0.1:3001
 ```
 
-Variables de entorno: `SESSION_SECRET` (obligatoria), `HOST` y `PORT`.
+Variables de entorno: `SESSION_SECRET` (obligatoria), `CLAVE_REGISTRO` (sin
+ella el registro queda cerrado), `HOST` y `PORT`.
