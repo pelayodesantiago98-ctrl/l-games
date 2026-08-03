@@ -466,3 +466,33 @@ node server.js          # escucha en 127.0.0.1:3001
 
 Variables de entorno: `SESSION_SECRET` (obligatoria), `CLAVE_REGISTRO` (sin
 ella el registro queda cerrado), `HOST` y `PORT`.
+
+## Licencia
+
+Este proyecto se distribuye bajo la **GNU General Public License v3.0**. El texto
+completo está en [LICENSE](LICENSE).
+
+    L-games — emuladores de consola en el navegador
+    Copyright (C) 2026 Lepayo (@pelayodesantiago98-ctrl)
+
+    Este programa es software libre: puedes redistribuirlo y/o modificarlo
+    bajo los términos de la GNU General Public License, en su versión 3,
+    tal y como la publica la Free Software Foundation.
+
+    Se distribuye con la esperanza de que resulte útil, pero SIN NINGUNA
+    GARANTÍA; ni siquiera la garantía implícita de COMERCIABILIDAD o
+    IDONEIDAD PARA UN PROPÓSITO PARTICULAR. Consulta la GNU General Public
+    License para más detalles.
+
+    Deberías haber recibido una copia de la GNU General Public License junto
+    a este programa. Si no es así, mírala en <https://www.gnu.org/licenses/>.
+
+Qué significa en la práctica: puedes usarlo, estudiarlo, modificarlo y
+redistribuirlo; si distribuyes una versión modificada, tienes que publicar su
+código con esta misma licencia.
+
+**Sobre EmulatorJS.** Este repositorio no lo incluye: los cores se descargan de
+su release oficial, como explica *Los cores no están en el repositorio*. Es
+software libre bajo GPL-3.0 y su licencia está en
+[EMULATORJS-LICENSE](EMULATORJS-LICENSE), la misma que la de aquí. Las ROMs y las
+partidas tampoco están en el repositorio: son de quien las tenga.
