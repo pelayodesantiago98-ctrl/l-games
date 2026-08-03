@@ -22,3 +22,9 @@ saves/
 
 # Portadas y animaciones de las consolas: contenido del usuario.
 media/
+
+# Copias de seguridad que deja el trabajo en el servidor. Nunca al repositorio:
+# entre ellas hay volcados de ficheros de configuración con credenciales.
+*.bak
+*.bak[0-9]
+*.pre-*

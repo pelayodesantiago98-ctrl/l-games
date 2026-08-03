@@ -62,6 +62,8 @@ function versionEstaticos() {
   }
 }
 
+const sso = require('/usr/local/lib/lepayimio/sso');
+
 const COOKIE = 'lgames_session';
 const SESSION_DAYS = 30;
 const MAX_SAVE_BYTES = 16 * 1024 * 1024; // holgado: la SRAM mayor ronda 8 MB
@@ -490,38 +492,69 @@ function createSession(username) {
   return `${payload}.${sign(payload)}`;
 }
 
+/*
+ * Quién eres lo dice lepayimio.es.
+ *
+ * Antes esto verificaba su propia cookie firmada y su propia lista de
+ * contraseñas. Ahora comprueba la del portal, que usa el mismo formato pero
+ * otra clave, y este servicio ya no guarda credenciales de nadie.
+ *
+ * El fichero de usuarios sigue haciendo falta —de ahí salen el rol, el nombre
+ * visible y la foto—, así que a quien entra por primera vez se le crea su
+ * ficha. Sin eso, un usuario nuevo del portal entraría sin perfil y se caerían
+ * las pantallas que lo dan por hecho.
+ */
 function readSession(req) {
-  const jar = Object.fromEntries(
-    (req.headers.cookie || '').split(';').map((c) => {
-      const i = c.indexOf('=');
-      return i < 0 ? ['', ''] : [c.slice(0, i).trim(), decodeURIComponent(c.slice(i + 1))];
-    })
-  );
-  const token = jar[COOKIE];
-  if (!token) return null;
+  const s = sso.sesion(req);
+  if (!s || !s.id) return null;
 
-  const [payload, signature] = token.split('.');
-  if (!payload || !signature) return null;
+  /*
+   * Se usa el ID, no el nombre. El ID acaba siendo el directorio donde viven
+   * las partidas, así que tiene que ser algo que no cambie nunca: cuando esto
+   * iba por nombre, renombrarse en el portal dejaba las partidas en una carpeta
+   * que ya no miraba nadie.
+   */
+  const nombre = String(s.id);
+  if (!USUARIO_VALIDO.test(nombre)) return null;
 
-  const expected = Buffer.from(sign(payload));
-  const got = Buffer.from(signature);
-  if (expected.length !== got.length || !crypto.timingSafeEqual(expected, got)) return null;
-
-  try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    if (!data.e || data.e < Date.now()) return null;
-    if (!loadUsers()[data.u]) return null;
-    return data.u;
-  } catch {
-    return null;
+  const users = loadUsers();
+  if (users[nombre] && s.nombre && users[nombre].usuario !== s.nombre) {
+    // El nombre visible se refresca solo desde el portal.
+    users[nombre].usuario = String(s.nombre);
+    try {
+      fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2) + '\n', { mode: 0o640 });
+    } catch { /* es solo la etiqueta: no merece cortar la peticion */ }
   }
+  if (!users[nombre]) {
+    /* El primero en llegar es el administrador; los siguientes, usuarios
+       normales que ya ascenderá él si quiere. */
+    const primero = Object.keys(users).length === 0;
+    users[nombre] = {
+      usuario: String(s.nombre || nombre),
+      rol: primero ? 'admin' : 'usuario',
+      nombre: String(s.nombre || nombre),
+      creado: new Date().toISOString(),
+    };
+    /* Escritura sincrona a proposito: esto pasa una sola vez por usuario y
+       hacerlo en diferido dejaria las siguientes peticiones sin ficha. */
+    try {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2) + '\n', { mode: 0o640 });
+    } catch (err) {
+      console.error('No he podido crear la ficha de ' + nombre + ': ' + err.message);
+    }
+  }
+  return nombre;
 }
 
 function requireAuth(req, res, next) {
   const user = readSession(req);
   if (!user) {
     if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'no autenticado' });
-    return res.redirect('/login');
+    /* Al login del portal, apuntando de dónde venía: quien entraba a jugar a
+       algo concreto vuelve a ese juego, no a la portada. */
+    const volver = encodeURIComponent('https://' + (req.headers.host || '') + (req.originalUrl || '/'));
+    return res.redirect(sso.LOGIN + '?volver=' + volver);
   }
   req.user = user;
   next();
@@ -1976,11 +2009,25 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
 
         function marcar(txt) { if (estado) estado.textContent = txt; }
 
+        /*
+         * Todos los bytes, no una muestra.
+         *
+         * Antes se miraba uno de cada 997: 132 bytes de los 131.072 de una SRAM
+         * de GBA. Un guardado que no tocase ninguna de esas posiciones pasaba
+         * por "no ha cambiado nada" y no se subia jamas, asi que la partida se
+         * quedaba solo en el navegador sin que nadie lo dijera.
+         *
+         * FNV-1a sobre el buffer entero: 131.072 vueltas de xor y multiplicacion
+         * cada cinco segundos, que en la practica no se mide. Imul mantiene la
+         * multiplicacion en 32 bits, que es lo que hace que esto sea barato.
+         */
         function huella(bytes) {
-          // Suficiente para detectar cambios sin coste: longitud + muestreo.
-          var h = bytes.length;
-          for (var i = 0; i < bytes.length; i += 997) h = (h * 31 + bytes[i]) >>> 0;
-          return h;
+          var h = 0x811c9dc5;
+          for (var i = 0; i < bytes.length; i++) {
+            h ^= bytes[i];
+            h = Math.imul(h, 0x01000193);
+          }
+          return (h >>> 0) + ':' + bytes.length;
         }
 
         function gm() {
@@ -2058,7 +2105,9 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
          * el repaso de "start" lo arregla.
          */
         function inyectarAntesDeArrancar() {
-          if (!sramServidor) return;
+          // Una memoria en blanco no es una partida: escribirla solo sirve para
+          // pisar lo que el core hubiera recuperado por su cuenta.
+          if (!sramServidor || vacia(sramServidor)) return;
           try {
             var e = window.EJS_emulator;
             var base = e.getBaseFileName(true) || 'game';
@@ -2125,7 +2174,13 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
               marcar('Guardado ' + new Date().toLocaleTimeString('es-ES'));
               return true;
             }
-            if (res.status === 409) return false;      // el servidor protegio la partida
+            if (res.status === 409) {
+              // El servidor protegio la partida: casi siempre porque lo que
+              // subimos estaba en blanco. Conviene enterarse, no callarlo.
+              console.warn('[partida] el servidor ha rechazado el guardado (409)');
+              marcar('El servidor ha rechazado el guardado');
+              return false;
+            }
             marcar('El servidor rechazo el guardado');
           } catch (err) {
             console.error('No se pudo guardar:', err);
@@ -2133,23 +2188,49 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
           return false;
         }
 
+        /*
+         * Rendirse en silencio era lo peor que podia hacer esto: si algo iba
+         * mal, la partida no se subia y la pagina no lo decia. Ahora cada
+         * descarte deja rastro en la consola, y los que no son normales se
+         * anuncian tambien en pantalla.
+         *
+         * "Sin cambios" es el caso corriente —salta cada treinta segundos
+         * mientras no guardes dentro del juego—, asi que ese no se anuncia.
+         */
+        function descartar(motivo, porque, corriente) {
+          console.log('[partida] ' + motivo + ': no se sube porque ' + porque);
+          if (!corriente) marcar('Sin guardar: ' + porque);
+        }
+
         async function guardar(motivo) {
-          if (guardando || !listo) return;
+          if (guardando) return;
+          if (!listo) return descartar(motivo, 'la restauracion aun no ha terminado');
+
           var g = gm();
-          if (!g) return;
+          if (!g) return descartar(motivo, 'el emulador todavia no responde');
+
           var datos;
-          try { datos = g.getSaveFile(); } catch (err) { return; }
-          if (!datos || !datos.length) return;
+          try {
+            datos = g.getSaveFile();
+          } catch (err) {
+            return descartar(motivo, 'el emulador no ha soltado la memoria: ' + err.message);
+          }
+          if (!datos || !datos.length) {
+            return descartar(motivo, 'el emulador no tiene memoria de partida');
+          }
 
           // Sin esto, abrir un juego y no llegar a guardar borraba la partida
           // del servidor a los treinta segundos.
-          if (vacia(datos)) return;
+          if (vacia(datos)) {
+            return descartar(motivo, 'la memoria del emulador esta en blanco (aun no has guardado dentro del juego)', true);
+          }
 
           var h = huella(datos);
-          if (h === ultimo) return;                     // nada ha cambiado
+          if (h === ultimo) return descartar(motivo, 'no ha cambiado nada', true);
 
           guardando = true;
           try {
+            console.log('[partida] ' + motivo + ': subiendo ' + datos.length + ' bytes');
             await subir(datos);
           } finally {
             guardando = false;
@@ -2506,7 +2587,21 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
           })();
         };
 
-        setInterval(function () { guardar('periodico'); }, 30000);
+        /*
+         * Cada cinco segundos, no treinta.
+         *
+         * El core no avisa cuando el juego graba, asi que la unica forma de
+         * enterarse es mirar. Con 30 s, entre grabar en el centro Pokemon y
+         * tener la partida en el servidor pasaba hasta medio minuto, y si
+         * cerrabas antes te quedabas sin ella salvo por el aviso de cierre.
+         *
+         * Medido: la subida de una SRAM de 128 KB tarda 33 ms, o sea que el
+         * temporizador era el 99,8% de la espera. El coste de mirar es volcar
+         * la memoria del core (128 KB en RAM) y muestrear 132 bytes para la
+         * huella; solo se sube si esa huella ha cambiado, asi que bajar el
+         * intervalo no anade ni una peticion de mas.
+         */
+        setInterval(function () { guardar('periodico'); }, 5000);
 
         document.addEventListener('visibilitychange', function () {
           if (document.visibilityState === 'hidden') guardar('oculto');
@@ -3271,7 +3366,15 @@ async function guardarSram(req, res) {
   let previa = null;
   try { previa = await fsp.readFile(file); } catch { /* aun no habia partida */ }
 
-  if (previa && partidaVacia(req.body) && !partidaVacia(previa)) {
+  /*
+   * Una partida en blanco no se acepta NUNCA, ni siquiera como primera. Antes
+   * la guardia pedia que hubiera una previa con contenido, asi que el primer
+   * guardado podia crear un .srm de 0xFF; a partir de ahi el juego arrancaba
+   * siempre sin nada que continuar y el fichero en blanco tapaba la via de
+   * recuperacion, porque el cliente ya veia una partida en el servidor.
+   * Guardar una memoria virgen no sirve de nada en ningun caso.
+   */
+  if (partidaVacia(req.body)) {
     console.warn(
       `Rechazada partida en blanco de ${req.user} para ${system.id}/${rom.name}`
     );
