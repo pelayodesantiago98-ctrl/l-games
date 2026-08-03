@@ -718,14 +718,15 @@ function perfilPage(user, aviso, error) {
         <span class="avatar avatar-grande">
           ${foto ? `<img src="${esc(foto.url)}" alt="">`
                  : `<span class="avatar-iniciales">${esc(inicialesDe(user))}</span>`}
+          <img class="avatar-portal" src="https://lepayimio.es/perfil/foto" alt=""
+               decoding="async" onerror="this.remove()">
         </span>
         <div>
-          <label class="btn file-btn" for="foto">${foto ? 'Cambiar foto' : 'Subir foto'}</label>
-          <input id="foto" type="file" accept="${esc(EXT_IMAGEN.join(','))}" hidden>
-          <p class="campo-nota">${esc(EXT_IMAGEN.join(' '))} · máximo 24 MB. Se recorta en círculo.</p>
+          <a class="btn" href="https://lepayimio.es/">Cambiar en lepayimio.es</a>
+          <p class="campo-nota">Tu foto es la misma en todos los servicios: se
+            gestiona en el portal.</p>
         </div>
       </div>
-      <div id="prog-foto" class="progress" hidden><div id="bar-foto" class="bar"></div><span id="txt-foto" class="ptext"></span></div>
     </section>
 
     <section class="panel">
