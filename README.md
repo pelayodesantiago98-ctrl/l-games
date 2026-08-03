@@ -7,6 +7,21 @@ WebAssembly) en una app Express con login.
 En producción: `l-games.lepayimio.es`. La configuración del servidor vive en el
 repositorio **lepayimio-infra**.
 
+## Capturas
+
+<p align="center"><img src="assets/screenshots/consolas.png" width="850" alt="Estantería de consolas"></p>
+
+<table>
+<tr>
+<td width="50%"><img src="assets/screenshots/juegos.png" alt="Juegos de un sistema"><br><sub>Los juegos de cada consola.</sub></td>
+<td width="50%"><img src="assets/screenshots/estadisticas.png" alt="Estadísticas"><br><sub>Partidas y tiempo por juego.</sub></td>
+</tr>
+<tr>
+<td><img src="assets/screenshots/controles.png" alt="Controles"><br><sub>Mapeo por defecto, reconfigurable desde el propio emulador.</sub></td>
+<td><img src="assets/screenshots/movil.png" alt="En el móvil"><br><sub>La estantería en el móvil.</sub></td>
+</tr>
+</table>
+
 ## ROMs y partidas
 
 Las ROMs se alojan en el servidor, en `roms/<sistema>/`, y se suben desde la
