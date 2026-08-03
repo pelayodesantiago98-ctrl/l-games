@@ -763,43 +763,7 @@ function perfilPage(user, aviso, error) {
         </div>
         <button class="btn" type="submit">Cambiar contraseña</button>
       </form>
-    </section>
-
-    <script>
-      (function () {
-        var el = document.getElementById('foto');
-        var box = document.getElementById('prog-foto');
-        var bar = document.getElementById('bar-foto');
-        var txt = document.getElementById('txt-foto');
-        if (!el) return;
-        el.addEventListener('change', function () {
-          var f = el.files && el.files[0];
-          if (!f) return;
-          box.hidden = false;
-          bar.style.background = '';
-          var xhr = new XMLHttpRequest();
-          xhr.open('PUT', '/api/foto/' + encodeURIComponent(f.name));
-          xhr.upload.onprogress = function (e) {
-            if (!e.lengthComputable) return;
-            var pct = Math.round((e.loaded / e.total) * 100);
-            bar.style.width = pct + '%';
-            txt.textContent = pct + '%';
-          };
-          xhr.onload = function () {
-            if (xhr.status >= 200 && xhr.status < 300) { location.reload(); return; }
-            var msg = xhr.responseText;
-            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
-            txt.textContent = 'Error: ' + msg;
-            bar.style.background = 'var(--danger)';
-          };
-          xhr.onerror = function () {
-            txt.textContent = 'Error de red';
-            bar.style.background = 'var(--danger)';
-          };
-          xhr.send(f);
-        });
-      })();
-    </script>`,
+    </section>`,
   });
 }
 
@@ -2893,9 +2857,8 @@ app.post('/perfil/clave', requireAuth, formulario, async (req, res) => {
   res.redirect('/perfil?ok=1');
 });
 
-app.put('/api/foto/:archivo', requireAuth, async (req, res) => {
-  await recibirMedia(req, res, { subdir: 'perfiles', base: req.user, tipo: 'portada' });
-});
+/* La foto de perfil se sube en el portal, que la comparte con todos los
+   servicios; aquí solo se lee la que hubiera de antes. */
 
 // ─── API: gestión de usuarios (admin) ────────────────────────────────────────
 
