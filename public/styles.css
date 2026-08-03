@@ -1529,3 +1529,17 @@ html {
   overflow-x: hidden;
   overscroll-behavior-x: none;
 }
+
+/* La foto del portal, encima de la que tenga L-games: así el avatar es el
+   mismo en todos los servicios. Si el portal no tiene ninguna, la etiqueta
+   falla, el guion la quita y vuelve a verse lo de debajo. */
+.avatar{ position: relative; overflow: hidden; }
+.avatar .avatar-portal{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  z-index: 2;
+}

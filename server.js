@@ -595,12 +595,15 @@ function layout({ title, body, user, wide, fija }) {
         ${foto
           ? `<img src="${esc(foto.url)}" alt="">`
           : `<span class="avatar-iniciales">${esc(inicialesDe(user))}</span>`}
+        <img class="avatar-portal" src="https://lepayimio.es/perfil/foto" alt=""
+             loading="lazy" decoding="async" onerror="this.remove()">
       </button>
       <div class="desplegable" id="menu-desplegable" hidden>
         <span class="desplegable-quien">
           <b>${esc((loadUsers()[user] || {}).nombre || user)}</b>
           <small>${esc(user)}</small>
         </span>
+        <a href="https://lepayimio.es/">Inicio de lepayimio</a>
         <a href="/perfil">Editar perfil</a>
         <a href="/estadisticas">Estadísticas</a>
         <a href="/controles">Controles</a>
