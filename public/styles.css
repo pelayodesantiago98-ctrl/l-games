@@ -903,7 +903,33 @@ video.card-anim {
  * mejor que fiarse del ancho de pantalla: un portátil táctil pequeño no debe
  * perder su barra al pasar el cursor, y una tablet grande sí necesita el botón.
  */
-.ajustes-btn { display: none; }
+.ajustes-btn,
+.juego-acciones,
+.solo-tactil { display: none; }
+
+/*
+ * Aspecto comun de los botones que flotan sobre el juego: Ajustes en una
+ * esquina y Salir/Reducir en la otra. Estaba escrito dentro de .ajustes-btn
+ * cuando era el unico; ahora que son tres, el aspecto va aparte y cada uno
+ * pone solo donde se coloca.
+ */
+.accion-juego {
+  padding: 0.45rem 0.85rem;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 0.45rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.accion-juego:active { background: rgba(0, 0, 0, 0.85); }
 
 @media (hover: none) and (pointer: coarse) {
   .ajustes-btn {
@@ -912,22 +938,26 @@ video.card-anim {
     top: 0.5rem;
     right: 0.5rem;
     z-index: 20;
-    padding: 0.45rem 0.85rem;
-    background: rgba(0, 0, 0, 0.62);
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    border-radius: 0.45rem;
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 550;
-    letter-spacing: 0.01em;
-    cursor: pointer;
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
   }
 
-  .ajustes-btn:active { background: rgba(0, 0, 0, 0.85); }
+  .solo-tactil { display: inline-block; }
+
+  /*
+   * Salir y Reducir, en la esquina de enfrente de Ajustes.
+   *
+   * Arriba y no abajo porque abajo esta el mando virtual: en vertical ocupa
+   * toda la franja inferior y en apaisado las dos esquinas de abajo.
+   */
+  .juego-acciones {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 20;
+    gap: 0.4rem;
+  }
 }
+
+
 
 #game { width: 100%; height: 100%; }
 
@@ -1595,4 +1625,41 @@ html {
   object-fit: cover;
   border-radius: 50%;
   z-index: 2;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   INMERSIVO: EL JUEGO SE QUEDA CON LA PANTALLA ENTERA
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/*
+ * Se entra al abrir un juego en el movil y se sale con Reducir, que devuelve
+ * la cabecera con los estados y el importar/exportar. Sin esa vuelta, en el
+ * telefono no habria forma de llegar a ellos.
+ *
+ * Va al final del fichero y con .fija.inmersivo, no .inmersivo a secas, por
+ * las dos reglas de arriba que dan padding al .wrap y esquinas redondas al
+ * lienzo: son body.fija .algo, tienen la misma especificidad que body.algo, y
+ * una de ellas vive dentro de la consulta de movil en vertical. Con la misma
+ * especificidad gana la ultima escrita, asi que el padding de .fija le comia
+ * un dedo a la pantalla completa justo en el movil que la estrena. Dos clases
+ * en el mismo elemento pesan mas y ya no depende del orden.
+ *
+ * La consulta tactil se repite aqui aunque el javascript ya la comprueba
+ * antes de poner la clase: si alguna vez llega donde no debe, un escritorio
+ * no se queda sin barra de navegacion.
+ */
+@media (hover: none) and (pointer: coarse) {
+  body.fija.inmersivo .topbar,
+  body.fija.inmersivo .play-head,
+  body.fija.inmersivo .estados-panel { display: none; }
+
+  body.fija.inmersivo .wrap { padding: 0; }
+
+  /* A pantalla completa las esquinas redondas dejan cuatro mordiscos del fondo
+     de la pagina en las esquinas del lienzo. */
+  body.fija.inmersivo #game-wrap { border-radius: 0; }
+
+  /* Salir y Reducir solo tienen sentido con el juego a pantalla completa. */
+  body.fija.inmersivo .juego-acciones { display: flex; }
 }

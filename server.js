@@ -1918,6 +1918,7 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
       <h1 class="play-title">${esc(romBase(rom.name))}</h1>
       <span id="save-status" class="save-status">${tieneSave ? 'Partida guardada encontrada' : 'Sin partida guardada'}</span>
       <span class="save-actions">
+        <button id="pantalla" class="link-btn solo-tactil" type="button">Pantalla completa</button>
         <button id="estados-btn" class="link-btn" type="button" aria-expanded="false">Estados</button>
         <a class="link-btn" href="${saveUrl}?descarga=1" download>Exportar partida</a>
         <label class="link-btn" for="import-save">Importar partida</label>
@@ -1936,7 +1937,13 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
 
     <div id="game-wrap">
       <div id="game"></div>
-      <button id="ajustes" class="ajustes-btn" type="button" aria-label="Abrir ajustes del emulador">Ajustes</button>
+      <div class="juego-acciones">
+        <a id="salir" class="accion-juego" href="/system/${esc(system.id)}"
+           title="Salir del juego">Salir</a>
+        <button id="reducir" class="accion-juego" type="button"
+                title="Dejar la pantalla completa">Reducir</button>
+      </div>
+      <button id="ajustes" class="ajustes-btn accion-juego" type="button" aria-label="Abrir ajustes del emulador">Ajustes</button>
     </div>
 
     <script>
@@ -2251,6 +2258,90 @@ function playPage(user, system, rom, tieneSave, estados, saveFecha) {
          * Ahi dentro estan guardar/cargar estado, captura, ajustes y pantalla
          * completa, asi que no hace falta reimplementar ninguna.
          */
+        /*
+         * Pantalla completa en el movil.
+         *
+         * Son dos cosas distintas y hacen falta las dos. El "inmersivo" es
+         * nuestro: una clase en el body que esconde la barra de arriba y la
+         * cabecera del juego y deja el lienzo con toda la pagina. Funciona en
+         * cualquier telefono porque es solo CSS. La otra es la pantalla
+         * completa del navegador, que ademas se come su barra de direcciones,
+         * y esa no siempre se puede: en el iPhone no existe para nada que no
+         * sea un video, asi que alli se queda en el inmersivo y ya.
+         *
+         * La nativa tampoco se puede pedir al cargar la pagina: el navegador
+         * solo la concede dentro de un gesto, y venir de un enlace no lo es.
+         * Se pide en el primer toque, que llega enseguida porque para jugar
+         * hay que tocar de todas formas.
+         *
+         * Solo en tactil. Con raton la pagina se queda como estaba: ahi la
+         * cabecera no estorba y EmulatorJS ya trae lo suyo en su barra.
+         */
+        var TACTIL = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+        var cuerpo = document.body;
+
+        function pantallaNativa() {
+          var el = document.documentElement;
+          var pedir = el.requestFullscreen || el.webkitRequestFullscreen;
+          if (!pedir || document.fullscreenElement || document.webkitFullscreenElement) return;
+          try {
+            var r = pedir.call(el, { navigationUI: 'hide' });
+            // Si la rechaza no pasa nada: el inmersivo ya tiene el juego a
+            // pantalla llena. Pero sin este catch queda un error suelto.
+            if (r && r.catch) r.catch(function () {});
+          } catch (err) { /* navegador sin pantalla completa */ }
+        }
+
+        function verInmersivo(si) {
+          cuerpo.classList.toggle('inmersivo', si);
+          if (si) return;
+          var soltar = document.exitFullscreen || document.webkitExitFullscreen;
+          if (soltar && (document.fullscreenElement || document.webkitFullscreenElement)) {
+            try {
+              var r = soltar.call(document);
+              if (r && r.catch) r.catch(function () {});
+            } catch (err) {}
+          }
+        }
+
+        if (TACTIL) {
+          verInmersivo(true);
+          document.addEventListener('pointerdown', function alPrimerToque(ev) {
+            // Salir y Reducir no son "ponte a pantalla completa".
+            if (ev.target && ev.target.closest && ev.target.closest('.juego-acciones')) return;
+            document.removeEventListener('pointerdown', alPrimerToque);
+            if (cuerpo.classList.contains('inmersivo')) pantallaNativa();
+          });
+        }
+
+        var btnReducir = document.getElementById('reducir');
+        if (btnReducir) {
+          btnReducir.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            verInmersivo(false);
+          });
+        }
+
+        /* Reducir devuelve la cabecera con los estados y el importar/exportar,
+           que en inmersivo no se ven. Este boton es el camino de vuelta, y al
+           ir dentro de un click la pantalla completa del navegador si entra a
+           la primera. */
+        var btnPantalla = document.getElementById('pantalla');
+        if (btnPantalla) {
+          btnPantalla.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            verInmersivo(true);
+            pantallaNativa();
+          });
+        }
+
+        /*
+         * Salir del juego navega a la lista, y con eso el guardado va solo: el
+         * "pagehide" de mas abajo sube la partida con sendBeacon antes de que
+         * la pagina se vaya. Por eso es un enlace de verdad y no un boton con
+         * javascript.
+         */
+
         var btnAjustes = document.getElementById('ajustes');
         var menuPermitido = false;
 
