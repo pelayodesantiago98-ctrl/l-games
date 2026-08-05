@@ -89,6 +89,34 @@ body {
   text-decoration: none;
 }
 
+/*
+ * El joystick de la esquina, el mismo dibujo con el que el portal pinta el
+ * acceso a L-games.
+ *
+ * Va sobre su degradado y no suelto: la imagen no tiene fondo, y sobre el
+ * cristal de la barra el contorno negro del pixel-art se perdia. Con el fondo
+ * puesto es la misma pieza que se ve en la pantalla de inicio, solo que
+ * pequena, que es justo lo que hace L-notes con el grimorio.
+ *
+ * `align-self` porque .brand alinea por linea base —lo que quiere la pildora
+ * de version— y una imagen alineada asi se cuelga por debajo del texto.
+ */
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  align-self: center;
+  margin: -4px 0;
+  padding: 3px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  object-fit: contain;
+  background: linear-gradient(160deg, #5a64ae, #12143c);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
 /* Misma píldora que en L-notes: acento translúcido, borde y esquinas redondas. */
 .version {
   padding: 0.12rem 0.42rem;

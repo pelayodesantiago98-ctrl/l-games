@@ -62,6 +62,23 @@ function versionEstaticos() {
   }
 }
 
+/*
+ * Lo mismo, pero para un estatico cualquiera dentro de public/.
+ *
+ * versionEstaticos() mira solo la fecha del CSS, que valia cuando el CSS era
+ * lo unico que cambiaba. El logo y el favicon se sirven con un ano de cache e
+ * `immutable`, asi que colgados de esa version un cambio de dibujo no llegaba
+ * nunca a quien ya lo tuviera guardado: seguiria viendo el anterior mientras
+ * no se tocase ademas el CSS. Cada fichero va con su propia fecha.
+ */
+function versionDe(...partes) {
+  try {
+    return String(Math.floor(fs.statSync(path.join(__dirname, 'public', ...partes)).mtimeMs));
+  } catch {
+    return '0';
+  }
+}
+
 const sso = require('/usr/local/lib/lepayimio/sso');
 
 const COOKIE = 'lgames_session';
@@ -583,11 +600,16 @@ function layout({ title, body, user, wide, fija }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
   <title>${esc(title)}</title>
+  <link rel="icon" href="/static/favicon.ico?v=${versionDe('favicon.ico')}" sizes="any">
   <link rel="stylesheet" href="/static/styles.css?v=${versionEstaticos()}">
 </head>
 <body class="${fija ? 'fija' : ''}">
   <header class="topbar">
-    <a class="brand" href="/">L-games<span class="version">v${esc(VERSION)}</span></a>
+    <a class="brand" href="/">
+      <img class="brand-icon" src="/static/icons/logo.png?v=${versionDe('icons', 'logo.png')}"
+           alt="" width="32" height="32" decoding="async">
+      <span class="brand-nombre">L-games</span><span class="version">v${esc(VERSION)}</span>
+    </a>
     ${user ? `<nav class="menu-usuario">
       <button class="avatar" id="btn-avatar" type="button"
               aria-haspopup="true" aria-expanded="false" aria-controls="menu-desplegable"
