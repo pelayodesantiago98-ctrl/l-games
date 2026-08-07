@@ -26,7 +26,17 @@ if (!SECRET) {
 const CONFIG_DIR = path.join(__dirname, 'config');
 const SYSTEMS_FILE = path.join(CONFIG_DIR, 'systems.json');
 const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
-const ROMS_DIR = path.join(__dirname, 'roms');
+/*
+ * Las ROMs pueden vivir fuera del disco del VPS.
+ *
+ * Son lo unico que crece sin techo aqui: los cores son 300 MB fijos y las
+ * portadas unas decenas, pero un catalogo de ROMs se come el disco entero. Con
+ * L_GAMES_ROMS apuntando a un almacenamiento montado se mueven sin tocar nada
+ * mas. Las PARTIDAS GUARDADAS se quedan siempre en local a proposito: son
+ * escrituras pequenas y constantes, justo lo que peor le sienta a un montaje
+ * de red.
+ */
+const ROMS_DIR = process.env.L_GAMES_ROMS || path.join(__dirname, 'roms');
 const SAVES_DIR = path.join(__dirname, 'saves');
 const MEDIA_ROOT = path.join(__dirname, 'media');
 const JUEGOS_FILE = path.join(CONFIG_DIR, 'juegos.json');
@@ -35,6 +45,15 @@ const JUEGOS_FILE = path.join(CONFIG_DIR, 'juegos.json');
 const EXT_IMAGEN = ['.jpg', '.jpeg', '.png', '.webp', '.avif'];
 const EXT_ANIMADA = ['.gif', '.webp', '.mp4', '.webm'];
 const MAX_MEDIA_BYTES = 24 * 1024 * 1024;
+
+/*
+ * Tope por ROM. Hasta ahora no habia ninguno: el cuerpo de la peticion se
+ * escribia en disco hasta que se acabara, asi que una subida despistada podia
+ * llenar la particion y llevarse por delante a los demas servicios. Un giga
+ * cubre de sobra cualquier cartucho y deja fuera las imagenes de disco, que es
+ * donde empiezan los tamanos que no compensan servir por red.
+ */
+const MAX_ROM_BYTES = Number(process.env.L_GAMES_MAX_ROM || 1024 * 1024 * 1024);
 
 /*
  * Versión de la aplicación, tomada de package.json para no tenerla en dos
@@ -139,19 +158,46 @@ const safeName = (value) =>
  * el cliente, sino que listamos el directorio y buscamos una coincidencia
  * exacta. Aunque el saneador fallara, aquí no hay forma de salir del directorio.
  */
+/*
+ * El listado se guarda y se revalida con la fecha de la carpeta.
+ *
+ * Antes se hacia un stat por fichero cada vez que alguien abria una consola.
+ * En disco local no se nota; con las ROMs en un almacenamiento de red es una
+ * ida y vuelta por fichero, asi que un catalogo de doscientos juegos eran
+ * doscientas esperas de red por visita. La fecha de la carpeta cambia al
+ * anadir, borrar o reemplazar, que es lo unico que puede alterar la lista.
+ */
+const listadoRoms = new Map();
+
 async function listRoms(systemId) {
   const dir = path.join(ROMS_DIR, safeName(systemId));
+
+  let marca;
+  try {
+    marca = (await fsp.stat(dir)).mtimeMs;
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.error(`Leyendo ${dir}: ${err.message}`);
+    listadoRoms.delete(dir);
+    return [];
+  }
+
+  const guardado = listadoRoms.get(dir);
+  if (guardado && guardado.marca === marca) return guardado.roms;
+
   try {
     const files = await fsp.readdir(dir, { withFileTypes: true });
     const roms = [];
     for (const f of files) {
       if (!f.isFile() || f.name.startsWith('.')) continue;
       const stat = await fsp.stat(path.join(dir, f.name));
-      roms.push({ name: f.name, size: stat.size });
+      // El mtime versiona la URL, que es lo que permite cachearla en el navegador
+      roms.push({ name: f.name, size: stat.size, mtime: stat.mtimeMs });
     }
-    return roms.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    roms.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    listadoRoms.set(dir, { marca, roms });
+    return roms;
   } catch (err) {
-    if (err.code !== 'ENOENT') console.error(`Leyendo ${dir}: ${err.message}`);
+    console.error(`Leyendo ${dir}: ${err.message}`);
     return [];
   }
 }
@@ -1904,7 +1950,8 @@ ${lista}
 }
 
 function playPage(user, system, rom, tieneSave, estados, saveFecha) {
-  const url = `/api/rom/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
+  const url = `/api/rom/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`
+    + `?v=${Math.floor(rom.mtime || 0)}`;
   const saveUrl = `/api/save/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
   const estadosUrl = `/api/estados/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
   const estadoUrl = `/api/estado/${encodeURIComponent(system.id)}/${encodeURIComponent(rom.name)}`;
@@ -2777,7 +2824,8 @@ app.use('/media', express.static(MEDIA_ROOT, {
  * y menos en la de Cloudflare.
  */
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/data/') && !req.path.startsWith('/static/')) {
+  if (!req.path.startsWith('/data/') && !req.path.startsWith('/static/')
+      && !req.path.startsWith('/api/rom/')) {
     res.set('Cache-Control', 'private, no-store');
   }
   next();
@@ -3146,6 +3194,14 @@ app.get('/api/rom/:id/:rom', requireAuth, async (req, res) => {
   const rom = await resolveRom(system.id, req.params.rom);
   if (!rom) return res.status(404).end();
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  /*
+   * Un ano en el navegador. La ROM es el mismo fichero para todos y no cambia,
+   * y sin esto se descargaba entera cada vez que se abria el juego: con las
+   * ROMs en red eso es pagar el viaje una y otra vez por la misma partida. La
+   * URL lleva ?v=<fecha>, asi que reemplazar una ROM sigue llegando al
+   * momento. Privada a proposito: es cache del navegador, no de Cloudflare.
+   */
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
   res.sendFile(rom.path);
 });
 
@@ -3163,6 +3219,13 @@ app.put('/api/rom/:id/:rom', requireAuth, requireAdmin, async (req, res) => {
     return res.status(400).json({ error: `extension ${ext} no admitida por ${system.name}` });
   }
 
+  const tope = `maximo ${Math.round(MAX_ROM_BYTES / 1048576)} MB por ROM`;
+
+  /* Si el cliente anuncia el tamano, se corta antes de transferir nada. */
+  if (Number(req.headers['content-length'] || 0) > MAX_ROM_BYTES) {
+    return res.status(413).json({ error: tope });
+  }
+
   const dir = path.join(ROMS_DIR, safeName(system.id));
   await fsp.mkdir(dir, { recursive: true });
 
@@ -3170,15 +3233,37 @@ app.put('/api/rom/:id/:rom', requireAuth, requireAdmin, async (req, res) => {
   const temporal = `${destino}.subiendo`;
 
   const salida = fs.createWriteStream(temporal);
+  let escritos = 0;
+  let cortada = false;
+
+  /*
+   * Y se cuentan los bytes segun llegan, porque la cabecera puede no venir o
+   * venir mentida: sin esto el tope seria una sugerencia.
+   */
+  req.on('data', (trozo) => {
+    if (cortada) return;
+    escritos += trozo.length;
+    if (escritos > MAX_ROM_BYTES) {
+      cortada = true;
+      req.unpipe(salida);
+      salida.destroy();
+      fsp.unlink(temporal).catch(() => {});
+      if (!res.headersSent) res.status(413).json({ error: tope });
+      req.destroy();
+    }
+  });
+
   req.pipe(salida);
 
   salida.on('error', async (err) => {
+    if (cortada) return;
     console.error(`Subida fallida (${nombre}): ${err.message}`);
     try { await fsp.unlink(temporal); } catch {}
     if (!res.headersSent) res.status(500).json({ error: 'no se pudo escribir' });
   });
 
   salida.on('finish', async () => {
+    if (cortada) return;
     try {
       await fsp.rename(temporal, destino);   // atómico: nunca queda a medias
       const stat = await fsp.stat(destino);
