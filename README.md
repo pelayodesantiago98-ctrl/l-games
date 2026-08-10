@@ -20,7 +20,51 @@ repositorio **lepayimio-infra**.
 <td><img src="assets/screenshots/controles.png" alt="Controles"><br><sub>Mapeo por defecto, reconfigurable desde el propio emulador.</sub></td>
 <td><img src="assets/screenshots/movil.png" alt="En el móvil"><br><sub>La estantería en el móvil.</sub></td>
 </tr>
+<tr>
+<td colspan="2"><img src="assets/screenshots/pc.png" alt="Apartado PC"><br><sub>El apartado PC: juegos que no se emulan, corren en el servidor.</sub></td>
+</tr>
 </table>
+
+## El apartado PC
+
+Una tarjeta más en la estantería, salvo que dentro no hay emulación. Son
+juegos que **corren en el propio servidor** —Wine sobre un X virtual— y se ven
+por VNC en el navegador. El primero es Pokémon Z, un juego de RPG Maker XP.
+
+Diferencias con un emulador, que importan:
+
+- **Una partida a la vez.** No hay una sesión por usuario: quien entre ve y
+  controla la misma pantalla que los demás. Está dicho en la propia tarjeta.
+- La pantalla llega como vídeo, así que **no hay estados guardados** ni las
+  estadísticas de tiempo que sí lleva EmulatorJS.
+
+El catálogo es `config/pc.json`, que se lee **en cada petición**: añadir un
+juego es editar cuatro líneas, sin reiniciar el servicio.
+
+```json
+[
+  {
+    "id": "pokemon-z",
+    "nombre": "Pokémon Z",
+    "sub": "RPG Maker XP · v2.18",
+    "url": "https://juego.lepayimio.es/",
+    "nota": "Una partida a la vez: quien entre ve y controla la misma pantalla."
+  }
+]
+```
+
+La pila que hay detrás (Xvfb, Wine, x11vnc, websockify, el audio y el vhost
+con sus mandos táctiles) vive en **lepayimio-infra**, no aquí.
+
+### `/sesion-valida`
+
+`juego.lepayimio.es` es un sitio aparte y no sabe de sesiones, así que su
+nginx pregunta aquí con `auth_request`. La ruta devuelve 204 o 401 y nada más.
+
+Va **deliberadamente sin `requireAuth`**: `requireAuth` redirige al login, y
+nginx interpreta una redirección dentro de un `auth_request` como un error del
+servidor en vez de como «no autenticado». El resultado sería un 500 en lugar
+de la pantalla de acceso.
 
 ## ROMs y partidas
 
