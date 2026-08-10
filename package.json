@@ -1,6 +1,6 @@
 {
   "name": "l-games",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Emuladores de consola en el navegador, con acceso restringido",
   "private": true,
   "main": "server.js",

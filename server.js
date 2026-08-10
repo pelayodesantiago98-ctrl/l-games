@@ -1326,6 +1326,43 @@ ${cuerpo}
         </a>`;
 }
 
+/*
+ * Juegos que corren en el propio servidor y se ven por el navegador, no
+ * emulados. Se leen en cada petición: son cuatro líneas y así añadir uno es
+ * editar un JSON, sin reiniciar nada.
+ */
+function cargarPC() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'config', 'pc.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function paginaPC(user, juegos) {
+  const tarjeta = (j) => tarjetaHTML({
+    href: j.url,
+    clases: ['card-juego-pc'],
+    cuerpo: `            <h2 class="card-title">${esc(j.nombre)}</h2>
+            <p class="card-sub">${esc(j.sub || '')}</p>
+            ${j.nota ? `<span class="card-count">${esc(j.nota)}</span>` : ''}`,
+  });
+
+  return layout({
+    user,
+    title: 'PC — L-games',
+    body: `    <a class="volver" href="/">← Consolas</a>
+    <h1 class="title">PC</h1>
+    <p class="sub">${juegos.length} ${juegos.length === 1 ? 'juego' : 'juegos'} · corren en el servidor y se ven aquí</p>
+
+    <div class="grid">
+${juegos.map(tarjeta).join('\n')}
+    </div>
+
+    ${juegos.length ? '' : '<p class="empty">Todavía no hay ninguno.</p>'}`,
+  });
+}
+
 function indexPage(user, systems, counts, juegos) {
   const card = (s) => tarjetaHTML({
     href: `/system/${s.id}`,
@@ -1353,7 +1390,7 @@ function indexPage(user, systems, counts, juegos) {
     user,
     body: `    <div class="head">
       <h1 class="title">Consolas</h1>
-      <p class="subtitle">${systems.length} sistemas · ${juegos.length} ${juegos.length === 1 ? 'juego' : 'juegos'}</p>
+      <p class="subtitle">${systems.length} sistemas · ${juegos.length + cargarPC().length} ${(juegos.length + cargarPC().length) === 1 ? 'juego' : 'juegos'}</p>
     </div>
 
     <div class="buscador">
@@ -1363,6 +1400,7 @@ function indexPage(user, systems, counts, juegos) {
     <p id="buscador-vacio" class="empty" hidden>Ningún juego coincide.</p>
 
     <div id="rejilla-consolas" class="grid">
+${tarjetaHTML({ href: "/pc", cuerpo: `            <h2 class="card-title">PC</h2>\n            <p class="card-sub">Juegos que corren en el servidor</p>\n            <span class="card-count">${cargarPC().length} ${cargarPC().length === 1 ? "juego" : "juegos"}</span>` })}
 ${systems.map(card).join('\n')}
     </div>
 
@@ -3123,6 +3161,17 @@ app.get('/', requireAuth, async (req, res) => {
   res.type('html').send(indexPage(req.user, systems, counts, juegos));
 });
 
+/*
+ * Solo para el auth_request de nginx, que protege la sesión de juego servida
+ * por noVNC. No devuelve nada: 204 si hay sesión del portal, 401 si no.
+ *
+ * No lleva requireAuth porque requireAuth redirige al login, y una redirección
+ * en un auth_request nginx la interpreta como error en vez de como "no".
+ */
+app.get('/sesion-valida', (req, res) => {
+  res.status(sso.sesion(req) ? 204 : 401).end();
+});
+
 app.get('/controles', requireAuth, (req, res) => {
   res.type('html').send(controlsPage(req.user));
 });
@@ -3156,6 +3205,10 @@ app.post('/api/stats/tiempo/:id/:rom', requireAuth, jsonPequeno, async (req, res
   const segundos = Math.max(0, Math.min(300, Number((req.body || {}).segundos) || 0));
   if (segundos > 0) await anotarUso(req.user, system.id, rom.name, { segundos });
   res.json({ ok: true, segundos });
+});
+
+app.get('/pc', requireAuth, (req, res) => {
+  res.type('html').send(paginaPC(req.user, cargarPC()));
 });
 
 app.get('/system/:id', requireAuth, async (req, res) => {
