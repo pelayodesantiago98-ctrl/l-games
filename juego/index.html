@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang=es>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content='width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no'>
+<meta name=robots content=noindex>
+<meta name=theme-color content='#0d0f12'>
+<title>Pokémon Z</title>
+<style>
+  /* Estilos en línea: son pocos y esta página no comparte nada con el resto
+     del sitio. La CSP admite 'unsafe-inline'. */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; overscroll-behavior: none; }
+  body {
+    margin: 0;
+    background: #0d0f12;
+    color: #e6e9ee;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    /* Sin esto, en el móvil arrastrar el pad mueve la página entera. */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .barra {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    padding: .45rem .8rem;
+    background: #14181d;
+    border-bottom: 1px solid #262c34;
+    font-size: .85rem;
+    flex: none;
+  }
+  .barra a { color: #9fb0c0; text-decoration: none; }
+  .barra a:hover { color: #e6e9ee; }
+  .titulo { font-weight: 600; }
+  .hueco { flex: 1; }
+
+  button {
+    font: inherit;
+    font-size: .8rem;
+    cursor: pointer;
+    background: #1d4f66;
+    color: #e6e9ee;
+    border: 1px solid #1d4f66;
+    border-radius: 8px;
+    padding: .35rem .7rem;
+  }
+  button:hover { background: #26647f; }
+  button[disabled] { background: #222; border-color: #2c333c; color: #6d7d8c; cursor: default; }
+  .secundario { background: transparent; border-color: #2c333c; color: #9fb0c0; }
+  .secundario:hover { background: #1a1f26; color: #e6e9ee; }
+
+  .aviso { color: #6d7d8c; font-size: .75rem; }
+  iframe { flex: 1; width: 100%; border: 0; display: block; background: #000; min-height: 0; }
+
+  /* ---------------------------------------------------------------- mandos */
+
+  /* Cruceta a la izquierda, A y B a la derecha, y START y SELECT
+     debajo ocupando el ancho. En una sola fila de tres columnas, A se salía
+     de la pantalla en cuanto el aparato bajaba de 400 px. */
+  .mandos {
+    flex: none;
+    display: none;               /* se enciende desde el script */
+    grid-template-columns: auto auto;
+    justify-content: space-between;
+    align-items: center;
+    gap: .5rem 1rem;
+    padding: .6rem 1.1rem calc(.6rem + env(safe-area-inset-bottom));
+    background: #11151a;
+    border-top: 1px solid #262c34;
+    /* Que arrastrar el dedo por los botones no haga scroll ni zoom. */
+    touch-action: none;
+  }
+  .mandos.visible { display: grid; }
+  .mandos .cruz     { grid-area: 1 / 1; }
+  .mandos .acciones { grid-area: 1 / 2; }
+  .mandos .centro   { grid-area: 2 / 1 / 3 / 3; justify-self: center; }
+
+  /* Cruceta de tres por tres: las esquinas quedan vacías y así el pulgar no
+     se cuela en diagonal sin querer, que en un juego de rejilla despista. */
+  .cruz {
+    display: grid;
+    grid-template-columns: repeat(3, 3.1rem);
+    grid-template-rows: repeat(3, 3.1rem);
+    gap: .25rem;
+  }
+  .cruz .arriba   { grid-area: 1 / 2; }
+  .cruz .izquierda{ grid-area: 2 / 1; }
+  .cruz .derecha  { grid-area: 2 / 3; }
+  .cruz .abajo    { grid-area: 3 / 2; }
+
+  .acciones {
+    display: grid;
+    grid-template-columns: repeat(2, 3.6rem);
+    gap: .5rem;
+    align-items: center;
+  }
+  .centro { display: flex; flex-direction: column; align-items: center; gap: .4rem; }
+
+  .tecla {
+    -webkit-tap-highlight-color: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #222a33;
+    border: 1px solid #333d49;
+    color: #cdd6df;
+    border-radius: 12px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding: 0;
+    height: 100%;
+    min-height: 3.1rem;
+    transition: none;
+  }
+  .tecla.redonda { border-radius: 50%; height: 3.6rem; font-size: 1.2rem; }
+  /* Rojo el de aceptar y gris el de cancelar, como en una consola de verdad:
+     se aprende sin leer nada. */
+  .tecla.a { background: #7d2a33; border-color: #9c353f; color: #ffe9ea; }
+  .tecla.b { background: #2b3540; border-color: #3c4855; }
+  .tecla.pequena { height: 2rem; min-height: 0; font-size: .68rem; letter-spacing: .1em;
+                   border-radius: 999px; padding: 0 .9rem; width: auto; }
+  .tecla.pulsada { filter: brightness(1.6); }
+
+  .fila-pequenas { display: flex; gap: .5rem; align-items: center; }
+
+  /* ----------------------------------------------------------- diagnóstico */
+
+  .diagnostico {
+    flex: none;
+    padding: .6rem .9rem;
+    background: #1a1206;
+    border-top: 1px solid #4a3a12;
+    font-size: .8rem;
+    line-height: 1.5;
+    font-family: ui-monospace, monospace;
+    white-space: pre-wrap;
+    max-height: 28vh;
+    overflow-y: auto;
+  }
+  .diagnostico b { color: #f0b429; }
+
+  @media (max-width: 30rem) {
+    .barra { font-size: .78rem; gap: .5rem; padding: .4rem .6rem; }
+    .cruz { grid-template-columns: repeat(3, 2.8rem); grid-template-rows: repeat(3, 2.8rem); }
+    .acciones { grid-template-columns: repeat(2, 3.2rem); }
+  }
+</style>
+</head>
+<body>
+
+<div class=barra>
+  <span class=titulo>Pokémon Z</span>
+  <a href="https://l-games.lepayimio.es/">← L-games</a>
+  <span class=hueco></span>
+  <span class=aviso id=aviso></span>
+  <button type=button class=secundario id=mandos-boton>Mandos</button>
+  <button type=button id=sonido>Sonido</button>
+</div>
+
+<!-- Rutas relativas: el juego vive en la raíz de su propio dominio, así que
+     noVNC resuelve /websockify sin nada que perder por el camino. -->
+<iframe id=lienzo
+        src="vnc.html?autoconnect=true&amp;resize=scale&amp;reconnect=true&amp;show_dot=true"
+        title="Pokémon Z"
+        allow="fullscreen"></iframe>
+
+<audio id=audio preload=none></audio>
+
+<!-- Mandos en pantalla. Los eventos van al noVNC del marco como pulsaciones de
+     teclado sintéticas: noVNC deduce la tecla de e.key y e.code, así que no
+     hace falta tocar ninguno de sus ficheros.
+
+     Son seis botones, con las teclas que el juego trae puestas: A es C,
+     B es Z, START es X, SELECT es Q y la cruceta son las flechas. -->
+<div class=mandos id=mandos>
+  <div class=cruz>
+    <button type=button class="tecla arriba"    data-tecla=ArrowUp>▲</button>
+    <button type=button class="tecla izquierda" data-tecla=ArrowLeft>◀</button>
+    <button type=button class="tecla derecha"   data-tecla=ArrowRight>▶</button>
+    <button type=button class="tecla abajo"     data-tecla=ArrowDown>▼</button>
+  </div>
+
+  <!-- Sin botón de CORRER aparte: correr es mantener B mientras andas, y dos
+       botones para la misma tecla solo ocupan sitio y confunden. -->
+  <div class=centro>
+    <div class=fila-pequenas>
+      <button type=button class="tecla pequena" data-tecla=KeyQ>SELECT</button>
+      <button type=button class="tecla pequena" data-tecla=KeyX>START</button>
+    </div>
+    <span class=aviso>A acepta &middot; B cancela y, mantenido, corre</span>
+  </div>
+
+  <div class=acciones>
+    <button type=button class="tecla redonda b" data-tecla=KeyZ>B</button>
+    <button type=button class="tecla redonda a" data-tecla=KeyC>A</button>
+  </div>
+</div>
+
+<div id=diagnostico class=diagnostico hidden></div>
+
+<script>
+  var marco = document.getElementById('lienzo');
+  var boton = document.getElementById('sonido');
+  var audio = document.getElementById('audio');
+  var aviso = document.getElementById('aviso');
+  var caja = document.getElementById('diagnostico');
+
+  function apunta(texto) {
+    caja.hidden = false;
+    caja.innerHTML += texto + '\n';
+  }
+
+  // ------------------------------------------------------------- sonido
+
+  boton.addEventListener('click', function () {
+    if (!audio.src) audio.src = 'audio';
+    audio.play().then(function () {
+      boton.textContent = 'Sonido ✓';
+      boton.disabled = true;
+    }).catch(function (e) {
+      apunta('No he podido arrancar el sonido: ' + e.message);
+    });
+  });
+
+  audio.addEventListener('error', function () {
+    boton.textContent = 'Reactivar sonido';
+    boton.disabled = false;
+    audio.removeAttribute('src');
+    apunta('El sonido se ha cortado.');
+  });
+
+  // ------------------------------------------------------------- mandos
+
+  /*
+   * Qué tecla es cada botón, en el idioma que entiende un navegador:
+   * "key" es lo que produciría la tecla y "code" dónde está físicamente.
+   * noVNC necesita las dos para traducirlo al teclado del servidor.
+   *
+   * Las cuatro teclas que trae puestas el juego: C acepta, Z cancela y, si
+   * se mantiene, corre; X abre las opciones y Q hace de select.
+   */
+  var TECLAS = {
+    ArrowUp:    { key: 'ArrowUp',    code: 'ArrowUp' },
+    ArrowDown:  { key: 'ArrowDown',  code: 'ArrowDown' },
+    ArrowLeft:  { key: 'ArrowLeft',  code: 'ArrowLeft' },
+    ArrowRight: { key: 'ArrowRight', code: 'ArrowRight' },
+    KeyC:       { key: 'c',          code: 'KeyC' },
+    KeyZ:       { key: 'z',          code: 'KeyZ' },
+    KeyX:       { key: 'x',          code: 'KeyX' },
+    KeyQ:       { key: 'q',          code: 'KeyQ' },
+  };
+
+  // El elemento del marco donde noVNC escucha. Se busca cada vez porque el
+  // lienzo no existe hasta que la conexión se establece.
+  function destino() {
+    try {
+      var doc = marco.contentDocument;
+      if (!doc) return null;
+      return doc.querySelector('#noVNC_screen canvas') || doc.querySelector('canvas') || doc.body;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function manda(nombre, abajo) {
+    var t = TECLAS[nombre];
+    var d = destino();
+    if (!t || !d) return false;
+    d.dispatchEvent(new KeyboardEvent(abajo ? 'keydown' : 'keyup', {
+      key: t.key, code: t.code, bubbles: true, cancelable: true,
+    }));
+    return true;
+  }
+
+  // Cada botón mantiene la tecla pulsada mientras se tiene el dedo encima: el
+  // juego consulta el estado de la tecla, no cuenta pulsaciones, así que para
+  // andar hace falta que siga bajada.
+  document.querySelectorAll('.tecla').forEach(function (b) {
+    // La que se ha bajado, para soltar luego esa misma y no otra.
+    var activa = null;
+
+    function pulsar(ev) {
+      ev.preventDefault();
+      if (activa) return;
+      activa = b.dataset.tecla;
+      b.classList.add('pulsada');
+      manda(activa, true);
+      // Que el dedo pueda salirse del botón sin dejar la tecla clavada.
+      if (ev.pointerId !== undefined && b.setPointerCapture) {
+        try { b.setPointerCapture(ev.pointerId); } catch (e) { /* da igual */ }
+      }
+    }
+
+    function soltar(ev) {
+      if (ev) ev.preventDefault();
+      if (!activa) return;
+      b.classList.remove('pulsada');
+      manda(activa, false);
+      activa = null;
+    }
+
+    b.addEventListener('pointerdown', pulsar);
+    b.addEventListener('pointerup', soltar);
+    b.addEventListener('pointercancel', soltar);
+    b.addEventListener('lostpointercapture', soltar);
+    b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+
+  // Si la ventana pierde el foco con una tecla bajada, se quedaría clavada y
+  // el personaje andando solo.
+  window.addEventListener('blur', function () {
+    document.querySelectorAll('.tecla.pulsada').forEach(function (b) {
+      b.classList.remove('pulsada');
+      manda(b.dataset.tecla, false);
+    });
+  });
+
+  var mandos = document.getElementById('mandos');
+  var mandosBoton = document.getElementById('mandos-boton');
+
+  function verMandos(si) {
+    mandos.classList.toggle('visible', si);
+    mandosBoton.textContent = si ? 'Ocultar mandos' : 'Mandos';
+    try { localStorage.setItem('mandos', si ? '1' : '0'); } catch (e) { /* modo privado */ }
+  }
+
+  mandosBoton.addEventListener('click', function () {
+    verMandos(!mandos.classList.contains('visible'));
+  });
+
+  // Encendidos de partida si el aparato es táctil, que es donde hacen falta.
+  var tactil = window.matchMedia('(pointer: coarse)').matches;
+  var guardado = null;
+  try { guardado = localStorage.getItem('mandos'); } catch (e) { /* modo privado */ }
+  verMandos(guardado === null ? tactil : guardado === '1');
+
+  // --------------------------------------------------------- diagnóstico
+
+  /*
+   * Solo habla si algo falla. Desde aquí no se ve la consola del navegador, y
+   * un "failed to connect" a secas no dice nada; esto da la URL exacta y el
+   * código de cierre.
+   */
+  var wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://')
+    + location.host + '/websockify';
+
+  try {
+    var prueba = new WebSocket(wsUrl, ['binary']);
+    prueba.onopen = function () { prueba.close(1000); };   // todo bien, ni una palabra
+    prueba.onclose = function (e) {
+      if (e.code === 1000) return;
+      apunta('<b>El lienzo no conecta.</b> ' + wsUrl);
+      apunta('  código ' + e.code + (e.reason ? ' — ' + e.reason : '')
+        + (e.code === 1006 ? '  (1006 = cortado sin respuesta: ruta equivocada,'
+          + ' un cortafuegos o una extensión del navegador)' : ''));
+    };
+  } catch (e) {
+    apunta('No se pudo ni intentar la conexión — ' + e.message);
+  }
+</script>
+
+</body>
+</html>
+
