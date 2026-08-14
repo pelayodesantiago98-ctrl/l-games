@@ -99,6 +99,14 @@ function versionDe(...partes) {
 }
 
 const sso = require('/usr/local/lib/lepayimio/sso');
+const temas = require('/usr/local/lib/lepayimio/tema');
+
+/* El tema elegido, por usuario y en el servidor: así sigue al usuario del
+   móvil al ordenador. Fichero propio, como en los demás servicios. */
+const tema = temas.crear(
+  path.join(__dirname, 'config', 'temas.json'),
+  ['oscuro', 'crystal', 'dark-crystal'],
+  'oscuro');
 
 const COOKIE = 'lgames_session';
 const SESSION_DAYS = 30;
@@ -395,7 +403,17 @@ function inicialesDe(usuario) {
 }
 
 // Nombres de usuario acotados: forman rutas de directorio de partidas y de foto.
-const USUARIO_VALIDO = /^[a-zA-Z0-9._-]{3,24}$/;
+//
+// Lo que se valida aquí NO es un nombre escrito por nadie, es el ID que da el
+// portal. El primer usuario tiene por ID su propio nombre, pero los demás
+// reciben un número correlativo: 2, 3, 10... Con el mínimo de 3 caracteres que
+// había antes, TODOS ellos se quedaban fuera de aquí -- readSession devolvía
+// null y les mandaba al login una y otra vez -- hasta que el portal llegara al
+// usuario número 100.
+//
+// El (?!\.+$) es el motivo por el que no basta con bajar el mínimo a 1: sin él
+// ".." pasaría el filtro, y esto acaba siendo un nombre de directorio.
+const USUARIO_VALIDO = /^(?!\.+$)[a-zA-Z0-9._-]{1,24}$/;
 
 async function guardarUsuarios(users) {
   await fsp.mkdir(CONFIG_DIR, { recursive: true });
@@ -640,8 +658,12 @@ function noteAttempt(ip) {
 
 function layout({ title, body, user, wide, fija }) {
   const foto = user ? fotoDe(user) : null;
+  /* El tema se marca aquí, donde ya se sabe de quién es la página. Dejarlo
+     para el navegador obligaría a pintar el tema por defecto y corregirlo
+     después, y ese parpadeo se ve en cada carga. */
+  const suTema = user ? tema.de(user) : 'oscuro';
   return `<!doctype html>
-<html lang="es">
+<html lang="es"${suTema !== 'oscuro' ? ` data-tema="${suTema}"` : ''}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
@@ -676,6 +698,12 @@ function layout({ title, body, user, wide, fija }) {
         <a href="/estadisticas">Estadísticas</a>
         <a href="/controles">Controles</a>
         ${esAdmin(user) ? '<a href="/gestion">Gestión</a>' : ''}
+        <button type="button" class="menu-desplegar" id="abrir-temas"
+                aria-expanded="false" aria-controls="submenu-temas">
+          <span class="menu-etiqueta">Tema</span>
+          <span class="tema-muestra tema-mini oscuro" id="tema-actual" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg></span>
+          <svg class="menu-flecha" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.6 5.6 15 12l-6.4 6.4-1.4-1.4L12.2 12 7.2 7z"/></svg>
+        </button>
         <form method="post" action="/logout">
           <button type="submit">Desconectarse</button>
         </form>
@@ -685,6 +713,41 @@ function layout({ title, body, user, wide, fija }) {
   <main class="${wide ? 'wrap wrap-wide' : 'wrap'}">
 ${body}
   </main>
+<!-- Ventana del tema. Va al final del cuerpo y no dentro del menú: dentro
+     heredaría su recorte y su posición, y una ventana centrada no puede colgar
+     de algo que se cierra al pulsar fuera. -->
+<div class="tema-velo" id="tema-velo" hidden>
+  <div class="tema-ventana" role="dialog" aria-modal="true" aria-labelledby="tema-titulo">
+    <div class="tema-barra">
+      <b id="tema-titulo">Tema</b>
+      <button type="button" class="tema-cerrar" data-cierra-tema aria-label="Cerrar">Hecho</button>
+    </div>
+        <div class="submenu" id="submenu-temas" role="group" aria-label="Tema" hidden>
+          <button type="button" class="menu-tema" role="menuitemradio" data-tema="oscuro">
+            <span class="tema-muestra oscuro">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>
+            </span>
+            <span class="tema-nombre">Oscuro</span>
+            <span class="tema-tic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+          </button>
+          <button type="button" class="menu-tema" role="menuitemradio" data-tema="crystal">
+            <span class="tema-muestra crystal">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zm0 12.2l7.1-3.95L21 12l-9 5-9-5 1.9-1.05L12 15.2z"/></svg>
+            </span>
+            <span class="tema-nombre">Crystal</span>
+            <span class="tema-tic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+          </button>
+          <button type="button" class="menu-tema" role="menuitemradio" data-tema="dark-crystal">
+            <span class="tema-muestra dark-crystal">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zm0 12.2l7.1-3.95L21 12l-9 5-9-5 1.9-1.05L12 15.2z"/></svg>
+            </span>
+            <span class="tema-nombre">Dark Crystal</span>
+            <span class="tema-tic"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+          </button>
+        </div>
+  </div>
+</div>
+
 ${user ? `  <script>
     (function () {
       var btn = document.getElementById('btn-avatar');
@@ -706,6 +769,96 @@ ${user ? `  <script>
       document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && !menu.hidden) { abrir(false); btn.focus(); }
       });
+
+      // ── Tema ────────────────────────────────────────────────────────
+      // Se guarda en el servidor, por usuario. Aquí no se aplica al cargar:
+      // ya viene marcado en el <html>.
+      var ICONOS_TEMA = {
+        'oscuro': '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>',
+        'crystal': '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zm0 12.2l7.1-3.95L21 12l-9 5-9-5 1.9-1.05L12 15.2z"/></svg>',
+        'dark-crystal': '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5zm0 12.2l7.1-3.95L21 12l-9 5-9-5 1.9-1.05L12 15.2z"/></svg>',
+      };
+      var NOMBRES = { oscuro: 'Oscuro', crystal: 'Crystal', 'dark-crystal': 'Dark Crystal' };
+      var puesto = document.getElementById('tema-actual');
+
+      function actual() { return document.documentElement.dataset.tema || 'oscuro'; }
+
+      function marcar(t) {
+        var botones = document.querySelectorAll('.menu-tema[data-tema]');
+        for (var i = 0; i < botones.length; i++) {
+          var suyo = botones[i].dataset.tema === t;
+          botones[i].classList.toggle('activa', suyo);
+          botones[i].setAttribute('aria-checked', suyo ? 'true' : 'false');
+        }
+        /* El icono del tema puesto. El nombre sigue haciendo falta, pero
+           para el lector de pantalla: un icono solo no dice nada. */
+        if (puesto) {
+          puesto.className = 'tema-muestra tema-mini ' + t;
+          puesto.innerHTML = ICONOS_TEMA[t] || '';
+        }
+        if (abrirTemas) abrirTemas.setAttribute('aria-label', 'Tema: ' + (NOMBRES[t] || t));
+      }
+
+      function poner(t) {
+        var antes = actual();
+        // Se pinta primero y se guarda después: esperar a la red para cambiar
+        // de color haría que pareciera lento.
+        if (t === 'oscuro') delete document.documentElement.dataset.tema;
+        else document.documentElement.dataset.tema = t;
+        marcar(t);
+
+        fetch('/api/tema', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tema: t }),
+        }).then(function (r) {
+          if (r.ok) return;
+          // Si no se guardó se deshace: dejar la pantalla diciendo una cosa y
+          // el servidor otra haría que al recargar pareciera que no funciona.
+          if (antes === 'oscuro') delete document.documentElement.dataset.tema;
+          else document.documentElement.dataset.tema = antes;
+          marcar(antes);
+        }).catch(function () {
+          if (antes === 'oscuro') delete document.documentElement.dataset.tema;
+          else document.documentElement.dataset.tema = antes;
+          marcar(antes);
+        });
+      }
+
+      var opciones = document.querySelectorAll('.menu-tema[data-tema]');
+      for (var k = 0; k < opciones.length; k++) {
+        (function (b) { b.addEventListener('click', function () { poner(b.dataset.tema); }); })(opciones[k]);
+      }
+
+      var abrirTemas = document.getElementById('abrir-temas');
+      var subTemas = document.getElementById('submenu-temas');
+      if (abrirTemas && subTemas) {
+        abrirTemas.addEventListener('click', function (e) {
+          e.stopPropagation();
+          verVentana(true);
+        });
+      }
+
+      function verVentana(v) {
+        var velo = document.getElementById('tema-velo');
+        if (!velo) return;
+        velo.hidden = !v;
+        // Se cierra el menú al abrirla: los dos a la vez tapan media pantalla.
+        if (v) abrir(false);
+        if (abrirTemas) abrirTemas.setAttribute('aria-expanded', v ? 'true' : 'false');
+      }
+
+      var veloTema = document.getElementById('tema-velo');
+      if (veloTema) {
+        veloTema.addEventListener('click', function (e) {
+          if (e.target === veloTema || e.target.closest('[data-cierra-tema]')) verVentana(false);
+        });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && !veloTema.hidden) verVentana(false);
+        });
+      }
+
+      marcar(actual());
     })();
   </script>
 ` : ''}</body>
@@ -2832,6 +2985,9 @@ const formulario = express.urlencoded({ extended: false, limit: '10kb' });
 // Declarado aquí y no junto a su primera ruta: las rutas se registran en orden
 // al cargar el módulo, y una const posterior aún estaría sin inicializar.
 const jsonPequeno = express.json({ limit: '2kb' });
+
+app.use('/api/tema', jsonPequeno);
+tema.rutas(app, (req) => readSession(req) || '');
 
 /*
  * Los cores de EmulatorJS pesan cientos de KB cada uno y no cambian nunca
