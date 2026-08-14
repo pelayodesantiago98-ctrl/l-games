@@ -1865,3 +1865,40 @@ html {
   align-items: center;
   gap: .5rem;
 }
+
+/* ── Los mandos no son texto ─────────────────────────────────────────────
+   Un titulo, un boton o una etiqueta son mandos: el puntero no tiene por que
+   volverse una barra de escribir encima de ellos, ni deben quedarse marcados
+   en azul al pulsar dos veces. Es lo que separa una aplicacion de un
+   documento.
+
+   Lo que si es contenido —el texto de una nota, un nombre que uno querria
+   copiar, lo que se escribe en un campo— se queda como estaba. */
+
+.barra, nav, header, footer,
+h1, h2, h3, .titulo-bloque, .titulo-con-icono,
+button, .boton, .boton-lino, .pestana, .filtro, .chapa,
+label, .menu, .submenu, .migas, .miga, .sel-cuenta {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* Lo que se pulsa, con su mano. */
+button, .boton, .boton-lino, .pestana, .filtro, a, [role="button"],
+summary, .menu button, .menu a {
+  cursor: pointer;
+}
+
+/* Y los campos, intactos: ahi el cursor de escribir es justo lo que hace
+   falta. */
+input, textarea, select, [contenteditable="true"], [contenteditable="true"] * {
+  -webkit-user-select: auto;
+  user-select: auto;
+  cursor: auto;
+}
+input[type="button"], input[type="submit"], input[type="checkbox"],
+input[type="radio"], input[type="file"], select { cursor: pointer; }
+
+/* Al tocar en el movil, sin el destello gris de Android. */
+html { -webkit-tap-highlight-color: transparent; }
