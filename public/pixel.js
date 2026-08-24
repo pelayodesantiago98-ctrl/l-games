@@ -10,6 +10,12 @@
  * requestAnimationFrame por tarjeta y display block/none, que es lo que hacía
  * la librería.
  *
+ * Solo de ida. Al retirar el ratón la animación se apaga en seco y se vuelve a
+ * la portada, como se hacía antes de que esto existiera: la cuadrícula es la
+ * forma de ENTRAR en la animación, y repetirla para salir la convertía en un
+ * peaje de seiscientos milisegundos cada vez que el puntero cruzaba por encima
+ * de una fila de tarjetas. La librería sí la hace en los dos sentidos.
+ *
  * El trato es el mismo que en mejoras.js: si este fichero no llega a cargarse,
  * la página se ve exactamente como antes. Todo lo que hace es AÑADIR la clase
  * .pix-activa y marcar <html data-pixeles>, y las reglas de la hoja de estilo
@@ -141,10 +147,13 @@
   }
 
   /*
-   * El cambio de capa, en el instante en que los bloques lo tapan todo. Con
-   * .pix-activa puesta, la hoja de estilo le asigna a la animación su
-   * background-image —que hasta ahora no se había pedido— y la sube a opaca
-   * sin transición: el corte es instantáneo porque no se ve.
+   * El cambio de capa. Con .pix-activa puesta, la hoja de estilo le asigna a
+   * la animación su background-image —que hasta ahora no se había pedido— y la
+   * sube a opaca sin transición.
+   *
+   * Al encender, esto ocurre en el instante en que los bloques lo tapan todo,
+   * así que el corte no se ve. Al apagar se ve, y es lo que se busca: la
+   * vuelta a la portada es seca.
    */
   function conmutar(card, entra) {
     card.classList.toggle('pix-activa', entra);
@@ -162,55 +171,74 @@
     }
   }
 
-  function anima(card, entra) {
+  /*
+   * Llevar los bloques encendidos de los que hay ahora a los que se piden, en
+   * el tiempo que se diga. Cualquier movimiento anterior de esa tarjeta se
+   * cancela: manda siempre el último.
+   */
+  function mover(est, hasta, dur, luego) {
+    if (est.raf) cancelAnimationFrame(est.raf);
+
+    var desde = est.mostrados;
+    if (dur <= 0 || desde === hasta) {
+      pinta(est, hasta);
+      est.raf = 0;
+      if (luego) luego();
+      return;
+    }
+
+    var inicio = 0;
+    function paso(ahora) {
+      if (!inicio) inicio = ahora;
+      var u = (ahora - inicio) / dur;
+      if (u >= 1) {
+        pinta(est, hasta);
+        est.raf = 0;
+        if (luego) luego();
+        return;
+      }
+      pinta(est, desde + Math.round((hasta - desde) * u));
+      est.raf = requestAnimationFrame(paso);
+    }
+    est.raf = requestAnimationFrame(paso);
+  }
+
+  /* La ida: tapar, cambiar de capa y destapar. */
+  function entrada(card) {
     var est = preparar(card);
     if (!est) return;
-    if (est.raf) cancelAnimationFrame(est.raf);
-    est.activa = entra;
+    est.activa = true;
 
     var n = est.pixeles.length;
-
-    /* Barajar con algo encendido movería bloques ya pintados. Solo se hace
+    /* Barajar con bloques encendidos movería los ya pintados. Solo se hace
        cuando no se ve ninguno —aquí— y cuando se ven todos, más abajo. */
     if (est.mostrados === 0) barajar(est.orden);
 
-    var desde = est.mostrados;
     /*
-     * Si la tarjeta ya estaba medio tapada —el ratón ha entrado y salido sin
-     * darle tiempo a terminar— se sigue desde donde estaba y la primera mitad
-     * dura solo lo que le falte. Volver a empezar de cero se vería como un
-     * salto hacia atrás.
+     * Si la tarjeta venía medio tapada —el ratón ha entrado, salido y vuelto a
+     * entrar sin darle tiempo a terminar— se sigue desde donde estaba y esta
+     * mitad dura solo lo que le falte. Volver a empezar de cero se vería como
+     * un salto hacia atrás.
      */
-    var dur = PASO * (n - desde) / n;
-    var inicio = 0;
-    var tapando = true;
+    mover(est, n, PASO * (n - est.mostrados) / n, function () {
+      conmutar(card, true);
+      barajar(est.orden);          /* el destape no repite el dibujo del tapado */
+      mover(est, 0, PASO);
+    });
+  }
 
-    function paso(ahora) {
-      if (!inicio) inicio = ahora;
-      var u = (ahora - inicio) / (tapando ? dur : PASO);
-
-      if (tapando) {
-        if (u >= 1) {
-          pinta(est, n);
-          conmutar(card, entra);
-          barajar(est.orden);      /* el destape no repite el dibujo del tapado */
-          tapando = false;
-          inicio = ahora;
-        } else {
-          pinta(est, desde + Math.round((n - desde) * u));
-        }
-      } else if (u >= 1) {
-        pinta(est, 0);
-        est.raf = 0;
-        return;
-      } else {
-        pinta(est, n - Math.round(n * u));
-      }
-
-      est.raf = requestAnimationFrame(paso);
-    }
-
-    est.raf = requestAnimationFrame(paso);
+  /*
+   * La vuelta no es la ida al revés: la animación se apaga en el acto y lo
+   * único que queda por hacer es retirar los bloques que hubiera puestos, en
+   * lo que les quede de camino. Si el ratón se va con la tarjeta ya destapada
+   * —el caso normal— no hay ninguno y aquí no se mueve nada.
+   */
+  function salida(card) {
+    var est = estados.get(card);
+    if (!est) return;
+    est.activa = false;
+    conmutar(card, false);
+    mover(est, 0, PASO * est.mostrados / est.pixeles.length);
   }
 
   /*
@@ -236,7 +264,7 @@
     if (!card) return;
     var est = estados.get(card);
     if (est && est.activa) return;
-    anima(card, true);
+    entrada(card);
   }
 
   function salir(ev) {
@@ -244,7 +272,7 @@
     if (!card) return;
     var est = estados.get(card);
     if (!est || !est.activa) return;
-    anima(card, false);
+    salida(card);
   }
 
   document.addEventListener('pointerover', function (ev) {
