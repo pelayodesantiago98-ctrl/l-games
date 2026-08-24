@@ -476,6 +476,49 @@ video.card-anim {
   object-fit: cover;
 }
 
+/* ── La transición de píxeles ───────────────────────────────────────────────
+ *
+ * La portada no se funde con la animación: la tapa una cuadrícula de bloques
+ * que se encienden en desorden, el cambio de capa pasa debajo mientras no se
+ * ve nada, y los bloques se apagan igual de desordenados. Los dibuja y los
+ * mueve pixel.js; aquí solo está su aspecto y dónde se apilan.
+ *
+ * Todas estas reglas cuelgan de :root[data-pixeles], que pone el guion al
+ * arrancar y solo si va a hacerse cargo. Si no llega a cargarse —o el puntero
+ * no puede posarse, o el sistema pide menos movimiento— la marca no está y
+ * sigue mandando el fundido de siempre, unas líneas más arriba.
+ */
+.card-pixeles {
+  position: absolute;
+  inset: 0;
+  z-index: 4;                  /* sobre las dos imágenes y el degradado */
+  pointer-events: none;
+}
+
+.card-pixel {
+  display: none;               /* el guion los enciende de uno en uno */
+  position: absolute;
+  /* Del tema, no un blanco fijo: en crystal el fondo es claro y un bloque
+     blanco sobre una carátula clara no se vería tapar nada. */
+  background: var(--fg);
+}
+
+/* Con el guion vivo, la animación deja de encenderla :hover y pasa a
+   encenderla la clase que él pone cuando los bloques ya lo tapan todo. La
+   imagen se sigue pidiendo solo ahí, así que el GIF continúa sin descargarse
+   hasta que hace falta. */
+:root[data-pixeles] .card:hover .card-anim,
+:root[data-pixeles] .card:focus-visible .card-anim {
+  opacity: 0;
+  background-image: none;
+}
+
+:root[data-pixeles] .card.pix-activa .card-anim {
+  opacity: 1;
+  background-image: var(--anim);
+  transition: none;            /* el corte es seco a propósito: está tapado */
+}
+
 /* Degradado para que el texto se lea sobre cualquier imagen. */
 .con-portada::after {
   content: '';
@@ -488,7 +531,7 @@ video.card-anim {
 
 .card-texto {
   position: relative;
-  z-index: 3;
+  z-index: 5;                  /* por encima de los píxeles, que van en 4 */
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
@@ -522,7 +565,7 @@ video.card-anim {
   position: absolute;
   top: 0.9rem;
   right: 1rem;
-  z-index: 3;
+  z-index: 5;
   color: var(--muted);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;

@@ -867,7 +867,8 @@ ${user ? `  <script>
       marcar(actual());
     })();
   </script>
-` : ''}<script src="/static/mejoras.js?v=${versionDe('mejoras.js')}" defer></script>
+` : ''}<script src="/static/pixel.js?v=${versionDe('pixel.js')}" defer></script>
+  <script src="/static/mejoras.js?v=${versionDe('mejoras.js')}" defer></script>
 </body>
 </html>
 `;
